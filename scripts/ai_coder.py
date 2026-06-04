@@ -119,7 +119,7 @@ def main() -> None:
 
     print("Sending request to Claude via Claude Code CLI...")
     result = subprocess.run(
-        ["claude", "--print", "--model", MODEL],
+        ["claude", "--print", "--model", MODEL, "--allowedTools", ""],
         input=prompt,
         capture_output=True,
         text=True,
