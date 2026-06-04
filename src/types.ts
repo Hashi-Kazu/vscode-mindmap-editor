@@ -13,6 +13,8 @@ export type ExtensionMessage =
 
 // Messages: webview → extension
 export type WebviewMessage =
+  | { type: 'ready' }
+  | { type: 'save' }
   | { type: 'structuralEdit'; root: MindMapNode }
   | { type: 'renameNode'; id: string; newText: string }
   | { type: 'saveCollapseState'; collapsedPaths: string[] };
