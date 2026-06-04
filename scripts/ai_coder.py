@@ -12,7 +12,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "claude-sonnet-4-6"
 REPO_ROOT = Path(__file__).parent.parent
 
 # Source files Claude is allowed to read and modify (skip large/binary dirs)
@@ -132,16 +132,22 @@ def main() -> None:
         sys.exit(1)
     raw = result.stdout.strip()
 
-    # Strip optional markdown code fences if Claude added them
-    if raw.startswith("```"):
-        lines = raw.splitlines()
-        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    # Extract JSON: handle preamble text + ```json ... ``` or bare JSON object
+    import re
+    fence_match = re.search(r"```(?:json)?\s*\n([\s\S]*?)\n```", raw)
+    if fence_match:
+        raw = fence_match.group(1).strip()
+    else:
+        # Fall back to finding the first { ... } block
+        brace_match = re.search(r"\{[\s\S]*\}", raw)
+        if brace_match:
+            raw = brace_match.group(0)
 
     try:
         response = json.loads(raw)
     except json.JSONDecodeError as exc:
         print(f"ERROR: Claude response is not valid JSON: {exc}", file=sys.stderr)
-        print("Raw response:", raw[:2000], file=sys.stderr)
+        print("Raw response:", result.stdout[:2000], file=sys.stderr)
         sys.exit(1)
 
     summary = response.get("summary", "")
