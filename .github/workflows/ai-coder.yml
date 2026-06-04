@@ -66,7 +66,7 @@ jobs:
             gh pr create \
               --title "feat: ${ISSUE_TITLE}" \
               --body "$PR_BODY" \
-              --base master \
+              --base main \
               --head "$BRANCH" \
               --draft
           fi
