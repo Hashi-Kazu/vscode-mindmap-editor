@@ -759,18 +759,14 @@
 
   // ─── Message from Extension ───────────────────────────────────────────────
 
-  let isFirstUpdate = true;
-
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'update') {
       root = msg.root;
       render();
-      if (isFirstUpdate) {
-        isFirstUpdate = false;
-        // Use rAF so the browser has painted at least once before fitting
-        requestAnimationFrame(() => requestAnimationFrame(fitView));
-      }
+      // Always fit the view after an update so newly added or
+      // off-screen nodes are always visible.
+      requestAnimationFrame(() => requestAnimationFrame(fitView));
     }
   });
 
