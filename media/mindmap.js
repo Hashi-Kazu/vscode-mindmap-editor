@@ -90,12 +90,14 @@
     const bg = svgEl('rect');
     bg.setAttribute('x', '-5000'); bg.setAttribute('y', '-5000');
     bg.setAttribute('width', '10000'); bg.setAttribute('height', '10000');
-    bg.setAttribute('fill', 'transparent');
+    bg.setAttribute('fill', 'none');
+    bg.setAttribute('pointer-events', 'all');
     treeGroup.appendChild(bg);
     drawEdges(treeGroup, rootNode);
     drawNodes(treeGroup, rootNode, true);
     applyTransform();
-    fitToScreen();
+    // Defer fitToScreen so the SVG has valid dimensions after paint
+    requestAnimationFrame(fitToScreen);
   }
 
   function applyTransform() {
