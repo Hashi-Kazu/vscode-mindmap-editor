@@ -270,8 +270,18 @@ body {
   cursor: default;
 }
 
-/* ── Drop indicator (unused but reserved) ─────────────────────────────────*/
+/* ── Drop indicator ────────────────────────────────────────────────────── */
 
 #drop-indicator {
+  position: absolute;
+  pointer-events: none;
   display: none;
+  z-index: 5;
+}
+
+#drop-indicator.drop-line {
+  height: 3px;
+  background: var(--focus, #007acc);
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(0, 122, 204, 0.55);
 }

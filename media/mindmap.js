@@ -572,7 +572,7 @@
     if (dragState.moved) {
       dragState.ghost.style.left = (e.clientX + 12) + 'px';
       dragState.ghost.style.top = (e.clientY - 18) + 'px';
-      highlightDropTarget(e, dragState.node);
+      updateDropFeedback(e, dragState.node);
     }
   }
 
@@ -580,7 +580,7 @@
     const ds = dragState;
     dragState = null;
     ds.ghost.remove();
-    dropIndicator.classList.remove('visible');
+    clearDropFeedback();
 
     if (!ds.moved) return;
 
@@ -588,23 +588,43 @@
     if (result) {
       performDrop(ds.node, result.targetNode, result.position);
     }
-
-    // Clear all highlights
-    document.querySelectorAll('.node.drop-over').forEach((el) =>
-      el.classList.remove('drop-over')
-    );
     render();
   }
 
-  function highlightDropTarget(e, draggedNode) {
+  /** Show a horizontal line for before/after, or a highlight box for inside */
+  function updateDropFeedback(e, draggedNode) {
+    clearDropFeedback();
+    const result = getDropTarget(e, draggedNode);
+    if (!result) return;
+
+    const { targetNode, position } = result;
+
+    if (position === 'inside') {
+      // Highlight the target node (will receive the dragged node as a child)
+      const el = document.querySelector(`.node[data-id="${targetNode.id}"]`);
+      if (el) el.classList.add('drop-over');
+      dropIndicator.style.display = 'none';
+    } else {
+      // Show a horizontal line above or below the target node
+      const lineY = position === 'before' ? targetNode._y : targetNode._y + NODE_H;
+      const sx = targetNode._x * transform.scale + transform.x;
+      const sy = lineY * transform.scale + transform.y;
+      const sw = NODE_W * transform.scale;
+
+      dropIndicator.className = 'drop-line';
+      dropIndicator.style.display = 'block';
+      dropIndicator.style.left = sx + 'px';
+      dropIndicator.style.top = (sy - 2) + 'px'; // centre the 3px line on the edge
+      dropIndicator.style.width = sw + 'px';
+    }
+  }
+
+  function clearDropFeedback() {
     document.querySelectorAll('.node.drop-over').forEach((el) =>
       el.classList.remove('drop-over')
     );
-    const result = getDropTarget(e, draggedNode);
-    if (result) {
-      const el = document.querySelector(`.node[data-id="${result.targetNode.id}"]`);
-      if (el) el.classList.add('drop-over');
-    }
+    dropIndicator.style.display = 'none';
+    dropIndicator.className = '';
   }
 
   function getDropTarget(e, draggedNode) {

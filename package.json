@@ -18,10 +18,7 @@
         "command": "mindmap.openMindMap",
         "title": "マインドマップとして開く",
         "category": "Mind Map",
-        "icon": {
-          "light": "media/icon-light.svg",
-          "dark": "media/icon-dark.svg"
-        }
+        "icon": "$(type-hierarchy)"
       }
     ],
     "menus": {
