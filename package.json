@@ -4,6 +4,10 @@
   "description": "Markdownの見出し構造をインタラクティブなマインドマップとして表示・編集するVS Code拡張機能",
   "version": "1.3.0",
   "publisher": "local-dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Hashi-Kazu/vscode-mindmap-editor"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
