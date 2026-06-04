@@ -206,10 +206,10 @@ export class MindMapPanel {
     <button id="btn-zoom-out" title="縮小 (Ctrl+-)">－</button>
     <button id="btn-fit" title="画面にフィット (F)">⊡</button>
     <span class="sep"></span>
-    <button id="btn-expand-all" title="すべて展開">↕ 展開</button>
-    <button id="btn-collapse-all" title="すべて折りたたむ">↕ 折畳</button>
+    <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
+    <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
     <span class="sep"></span>
-    <span id="hint">ダブルクリック: 編集　右クリック: ノード操作　ドラッグ: 移動　Alt+↑↓: 上下入替</span>
+    <span id="hint">ダブルクリック: 編集　右クリック: ノード操作　ドラッグ: 移動　Alt+↑↓: 上下入替　▶/▼: 選択ノード展開/折畳</span>
   </div>
   <div id="stage">
     <svg id="svg-layer"></svg>

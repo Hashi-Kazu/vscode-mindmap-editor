@@ -183,6 +183,12 @@
     label.textContent = node.text;
     div.appendChild(label);
 
+    // Tooltip: show full text only when text is truncated by ellipsis
+    div.addEventListener('mouseenter', () => {
+      const lbl = div.querySelector('.label');
+      div.title = (lbl && lbl.scrollWidth > lbl.clientWidth) ? node.text : '';
+    });
+
     // Events
     div.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -309,14 +315,20 @@
   });
   document.getElementById('btn-fit').addEventListener('click', fitView);
   document.getElementById('btn-expand-all').addEventListener('click', () => {
-    setAllCollapsed(root, false);
+    if (!selectedId || !root) return;
+    const node = findById(root, selectedId);
+    // Valid only when the selected node has children and is currently collapsed
+    if (!node || !node.children.length || !node.collapsed) return;
+    node.collapsed = false;
     render();
     postCollapseState();
   });
   document.getElementById('btn-collapse-all').addEventListener('click', () => {
-    if (root) {
-      root.children.forEach((c) => setAllCollapsed(c, true));
-    }
+    if (!selectedId || !root) return;
+    const node = findById(root, selectedId);
+    // Valid only when the selected node has children and is currently expanded
+    if (!node || !node.children.length || node.collapsed) return;
+    node.collapsed = true;
     render();
     postCollapseState();
   });
