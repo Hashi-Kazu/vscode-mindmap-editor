@@ -1,0 +1,65 @@
+{
+  "name": "vscode-mindmap-editor",
+  "displayName": "Mind Map Editor",
+  "description": "Edit Markdown files as interactive mind maps",
+  "version": "0.1.0",
+  "publisher": "mindmap-editor",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other", "Visualization"],
+  "keywords": ["markdown", "mindmap", "mind map", "editor"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "mindmap.editor",
+        "displayName": "Mind Map Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mindmap.openAsMindMap",
+        "title": "Open as Mind Map",
+        "category": "Mind Map"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mindmap.openAsMindMap",
+          "when": "resourceExtname == .md",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "mindmap.openAsMindMap",
+          "when": "resourceExtname == .md",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^2.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0"
+  }
+}

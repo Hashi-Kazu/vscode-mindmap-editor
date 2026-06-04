@@ -1,0 +1,258 @@
+:root {
+  --node-bg: var(--vscode-editor-background, #1e1e1e);
+  --node-border: var(--vscode-focusBorder, #007acc);
+  --node-text: var(--vscode-editor-foreground, #d4d4d4);
+  --node-hover-bg: var(--vscode-list-hoverBackground, #2a2d2e);
+  --node-selected-bg: var(--vscode-list-activeSelectionBackground, #094771);
+  --edge-color: var(--vscode-editorLineNumber-foreground, #858585);
+  --toolbar-bg: var(--vscode-editorGroupHeader-tabsBackground, #252526);
+  --toolbar-border: var(--vscode-editorGroupHeader-tabsBorder, #3c3c3c);
+  --btn-bg: var(--vscode-button-secondaryBackground, #3a3d41);
+  --btn-text: var(--vscode-button-secondaryForeground, #cccccc);
+  --btn-hover: var(--vscode-button-secondaryHoverBackground, #45494e);
+  --drop-target-border: var(--vscode-charts-green, #4ec9b0);
+  --collapse-bg: var(--vscode-badge-background, #4d4d4d);
+  --collapse-fg: var(--vscode-badge-foreground, #ffffff);
+  --root-node-bg: var(--vscode-activityBarBadge-background, #007acc);
+  --root-node-text: var(--vscode-activityBarBadge-foreground, #ffffff);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-editor-background);
+  color: var(--node-text);
+  font-family: var(--vscode-font-family, -apple-system, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Toolbar ── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  gap: 8px;
+  flex-shrink: 0;
+  height: 35px;
+}
+
+.file-name {
+  font-size: 12px;
+  opacity: 0.7;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#toolbar button {
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.6;
+  transition: background 0.1s;
+}
+
+#toolbar button:hover {
+  background: var(--btn-hover);
+  border-color: var(--node-border);
+}
+
+/* ── SVG Container ── */
+#svg-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+}
+
+#svg-container.grabbing {
+  cursor: grabbing;
+}
+
+#mindmap-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Edges ── */
+.edge {
+  fill: none;
+  stroke: var(--edge-color);
+  stroke-width: 1.5;
+  opacity: 0.6;
+}
+
+/* ── Nodes ── */
+.node-group {
+  cursor: grab;
+}
+
+.node-group:active {
+  cursor: grabbing;
+}
+
+.node-group.dragging {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.node-group.drop-target .node-rect {
+  stroke: var(--drop-target-border) !important;
+  stroke-width: 2 !important;
+  stroke-dasharray: 4 2;
+}
+
+.node-rect {
+  fill: var(--node-bg);
+  stroke: var(--node-border);
+  stroke-width: 1;
+  rx: 6;
+  transition: fill 0.1s, stroke-width 0.1s;
+}
+
+.node-group:hover .node-rect {
+  fill: var(--node-hover-bg);
+}
+
+.node-group.is-root .node-rect {
+  fill: var(--root-node-bg);
+  stroke: var(--root-node-bg);
+}
+
+.node-group.is-root .node-text {
+  fill: var(--root-node-text);
+  font-weight: 600;
+}
+
+.node-text {
+  fill: var(--node-text);
+  font-size: 13px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Collapse Toggle ── */
+.collapse-toggle {
+  fill: var(--collapse-bg);
+  stroke: var(--node-border);
+  stroke-width: 1;
+  cursor: pointer;
+}
+
+.collapse-toggle:hover {
+  fill: var(--node-border);
+}
+
+.collapse-toggle-text {
+  fill: var(--collapse-fg);
+  font-size: 11px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Action Buttons (shown on hover) ── */
+.action-btn {
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.node-group:hover .action-btn {
+  opacity: 1;
+}
+
+.action-btn circle {
+  fill: var(--btn-bg);
+  stroke: var(--node-border);
+  stroke-width: 1;
+}
+
+.action-btn:hover circle {
+  fill: var(--node-border);
+}
+
+.action-btn text {
+  fill: var(--btn-text);
+  font-size: 12px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.add-btn circle {
+  fill: rgba(78, 201, 176, 0.2);
+  stroke: #4ec9b0;
+}
+
+.add-btn:hover circle {
+  fill: #4ec9b0;
+}
+
+.delete-btn circle {
+  fill: rgba(241, 76, 76, 0.15);
+  stroke: #f14c4c;
+}
+
+.delete-btn:hover circle {
+  fill: #f14c4c;
+}
+
+/* ── Drag ghost ── */
+.drag-ghost {
+  pointer-events: none;
+}
+
+.drag-ghost .node-rect {
+  fill: var(--node-hover-bg);
+  opacity: 0.8;
+}
+
+/* ── Inline edit overlay ── */
+#edit-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+#edit-input {
+  position: absolute;
+  background: var(--vscode-input-background, #3c3c3c);
+  color: var(--vscode-input-foreground, #cccccc);
+  border: 1px solid var(--vscode-focusBorder, #007acc);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  pointer-events: all;
+  z-index: 100;
+}
+
+/* ── Drop indicator line ── */
+.drop-indicator {
+  stroke: var(--drop-target-border);
+  stroke-width: 2;
+  stroke-dasharray: none;
+  pointer-events: none;
+}
