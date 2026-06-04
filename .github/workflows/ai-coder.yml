@@ -1,0 +1,81 @@
+name: AI Coder
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  ai-code:
+    if: github.event.label.name == 'ai-task'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run AI Coder
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: python scripts/ai_coder.py
+
+      - name: Create branch and commit changes
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="feature/issue-${ISSUE_NUMBER}"
+          git checkout -b "$BRANCH"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "feat: AI-generated changes for issue #${ISSUE_NUMBER}"
+          git push origin "$BRANCH" --force
+
+      - name: Create or update draft PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          BRANCH="feature/issue-${ISSUE_NUMBER}"
+          SUMMARY=$(cat ai_summary.txt 2>/dev/null || echo "")
+          PR_BODY=$(printf '## AI-generated changes\n\n%s\n\nCloses #%s' "${SUMMARY}" "${ISSUE_NUMBER}")
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null)
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #${EXISTING_PR} already exists. Skipping creation."
+          else
+            gh pr create \
+              --title "feat: ${ISSUE_TITLE}" \
+              --body "$PR_BODY" \
+              --base master \
+              --head "$BRANCH" \
+              --draft
+          fi
+
+      - name: Post failure comment on issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "${ISSUE_NUMBER}" \
+            --body "AI Coderワークフローが失敗しました。[Actions ログを確認してください。](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
