@@ -17,8 +17,10 @@ export class MindMapPanel {
   private lastFrontmatter = '';
   private lastRoot: MindMapNode | null = null;
 
-  // Guard against echo loops
+  // Guard against echo loops: skip onDidChangeTextDocument while we apply our own edit
   private applyingEdit = false;
+  // True while processing a webview message — external MD changes are deferred
+  private isOperating = false;
   // Set to true once the webview sends its 'ready' signal
   private webviewReady = false;
 
@@ -65,6 +67,7 @@ export class MindMapPanel {
     const docChangeListener = vscode.workspace.onDidChangeTextDocument((e) => {
       if (
         !this.applyingEdit &&
+        !this.isOperating &&
         e.document.uri.toString() === document.uri.toString()
       ) {
         this.syncFromDocument(e.document);
@@ -103,41 +106,58 @@ export class MindMapPanel {
         break;
       }
 
+      case 'save': {
+        // Ctrl+S from the webview — save the backing Markdown document.
+        await this.document.save();
+        break;
+      }
+
       case 'structuralEdit': {
-        const webRoot = msg.root as MindMapNode;
-        // Restore body content using ID-based lookup from the previous lastRoot.
-        if (this.lastRoot) {
-          const bodyMap = buildBodyMapById(this.lastRoot);
-          applyBodiesById(webRoot, bodyMap);
+        this.isOperating = true;
+        try {
+          const webRoot = msg.root as MindMapNode;
+          if (this.lastRoot) {
+            const bodyMap = buildBodyMapById(this.lastRoot);
+            applyBodiesById(webRoot, bodyMap);
+          }
+          this.lastRoot = webRoot;
+          const collapsed = extractCollapsedPaths(webRoot);
+          const newContent = serializeToMarkdown(
+            webRoot,
+            this.lastFrontmatter,
+            this.lastPreamble,
+            collapsed
+          );
+          await this.applyDocumentEdit(newContent);
+        } finally {
+          this.isOperating = false;
         }
-        // The webview's tree is now the authoritative version — adopt its IDs.
-        this.lastRoot = webRoot;
-        const collapsed = extractCollapsedPaths(webRoot);
-        const newContent = serializeToMarkdown(
-          webRoot,
-          this.lastFrontmatter,
-          this.lastPreamble,
-          collapsed
-        );
-        await this.applyDocumentEdit(newContent);
+        // Re-sync: Markdown is authoritative — picks up any concurrent external edits.
+        this.syncFromDocument(this.document);
         break;
       }
 
       case 'renameNode': {
-        const { id, newText } = msg as { type: string; id: string; newText: string };
-        if (!this.lastRoot) break;
-        const node = findNodeById(this.lastRoot, id);
-        if (!node) break;
-        // Update in-place so IDs stay stable for the next round-trip.
-        node.text = newText;
-        const collapsed = extractCollapsedPaths(this.lastRoot);
-        const newContent = serializeToMarkdown(
-          this.lastRoot,
-          this.lastFrontmatter,
-          this.lastPreamble,
-          collapsed
-        );
-        await this.applyDocumentEdit(newContent);
+        this.isOperating = true;
+        try {
+          const { id, newText } = msg as { type: string; id: string; newText: string };
+          if (!this.lastRoot) break;
+          const node = findNodeById(this.lastRoot, id);
+          if (!node) break;
+          node.text = newText;
+          const collapsed = extractCollapsedPaths(this.lastRoot);
+          const newContent = serializeToMarkdown(
+            this.lastRoot,
+            this.lastFrontmatter,
+            this.lastPreamble,
+            collapsed
+          );
+          await this.applyDocumentEdit(newContent);
+        } finally {
+          this.isOperating = false;
+        }
+        // Re-sync: ensures webview reflects the saved Markdown state.
+        this.syncFromDocument(this.document);
         break;
       }
 

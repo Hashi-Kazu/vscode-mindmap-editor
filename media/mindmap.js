@@ -334,6 +334,12 @@
   });
 
   document.addEventListener('keydown', (e) => {
+    // Ctrl+S / Cmd+S — save the backing Markdown file
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      vscode.postMessage({ type: 'save' });
+      return;
+    }
     if (e.key === 'f' || e.key === 'F') { fitView(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '=') {
       transform.scale = Math.min(4, transform.scale * 1.25); applyTransform();
@@ -465,8 +471,11 @@
     const idx = parent ? parent.children.indexOf(node) : -1;
     const elUp = document.getElementById('ctx-move-up');
     const elDown = document.getElementById('ctx-move-down');
-    if (elUp)   elUp.classList.toggle('disabled', !parent || idx <= 0);
-    if (elDown) elDown.classList.toggle('disabled', !parent || idx >= parent.children.length - 1);
+    const elAddChild = document.getElementById('ctx-add-child');
+    if (elUp)       elUp.classList.toggle('disabled', !parent || idx <= 0);
+    if (elDown)     elDown.classList.toggle('disabled', !parent || idx >= parent.children.length - 1);
+    // H6 cannot have children (no H7 in Markdown)
+    if (elAddChild) elAddChild.classList.toggle('disabled', node.level >= 6);
 
     ctxMenu.style.left = e.clientX + 'px';
     ctxMenu.style.top = e.clientY + 'px';
@@ -485,6 +494,7 @@
 
   document.getElementById('ctx-add-child').addEventListener('click', () => {
     if (!contextTarget) return;
+    if (contextTarget.level >= 6) return; // H6 cannot have children
     const newNode = makeNode('新しいノード', contextTarget.level + 1);
     contextTarget.children.push(newNode);
     contextTarget.collapsed = false;
@@ -585,13 +595,14 @@
     if (!ds.moved) return;
 
     const result = getDropTarget(e, ds.node);
-    if (result) {
+    // 'h6-blocked' means the drop target is an H6 node — ignore
+    if (result && result.position !== 'h6-blocked') {
       performDrop(ds.node, result.targetNode, result.position);
     }
     render();
   }
 
-  /** Show a horizontal line for before/after, or a highlight box for inside */
+  /** Show a horizontal line for before/after, highlight for inside, blocked cursor for H6 */
   function updateDropFeedback(e, draggedNode) {
     clearDropFeedback();
     const result = getDropTarget(e, draggedNode);
@@ -599,11 +610,15 @@
 
     const { targetNode, position } = result;
 
+    if (position === 'h6-blocked') {
+      // H6 cannot accept children — show not-allowed cursor, no indicator
+      stage.style.cursor = 'not-allowed';
+      return;
+    }
+
     if (position === 'inside') {
-      // Highlight the target node (will receive the dragged node as a child)
       const el = document.querySelector(`.node[data-id="${targetNode.id}"]`);
       if (el) el.classList.add('drop-over');
-      dropIndicator.style.display = 'none';
     } else {
       // Show a horizontal line above or below the target node
       const lineY = position === 'before' ? targetNode._y : targetNode._y + NODE_H;
@@ -614,7 +629,7 @@
       dropIndicator.className = 'drop-line';
       dropIndicator.style.display = 'block';
       dropIndicator.style.left = sx + 'px';
-      dropIndicator.style.top = (sy - 2) + 'px'; // centre the 3px line on the edge
+      dropIndicator.style.top = (sy - 2) + 'px';
       dropIndicator.style.width = sw + 'px';
     }
   }
@@ -625,6 +640,7 @@
     );
     dropIndicator.style.display = 'none';
     dropIndicator.className = '';
+    stage.style.cursor = '';
   }
 
   function getDropTarget(e, draggedNode) {
@@ -657,6 +673,9 @@
       if (relY < nh * 0.25) position = 'before';
       else if (relY > nh * 0.75) position = 'after';
       else position = 'inside';
+
+      // H6 nodes cannot have children (H7 does not exist in Markdown)
+      if (position === 'inside' && node.level >= 6) position = 'h6-blocked';
 
       const cx = nx + nw / 2;
       const cy = ny + nh / 2;
