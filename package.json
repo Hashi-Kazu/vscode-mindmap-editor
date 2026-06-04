@@ -1,65 +1,61 @@
 {
   "name": "vscode-mindmap-editor",
-  "displayName": "Mind Map Editor",
-  "description": "Edit Markdown files as interactive mind maps",
+  "displayName": "Markdown Mind Map Editor",
+  "description": "Markdownの見出し構造をインタラクティブなマインドマップとして表示・編集するVS Code拡張機能",
   "version": "0.1.0",
-  "publisher": "mindmap-editor",
+  "publisher": "local-dev",
+  "license": "MIT",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.85.0"
   },
   "categories": ["Other", "Visualization"],
-  "keywords": ["markdown", "mindmap", "mind map", "editor"],
-  "activationEvents": [],
+  "keywords": ["markdown", "mindmap", "mind map", "editor", "visualization"],
+  "activationEvents": ["onLanguage:markdown"],
   "main": "./dist/extension.js",
   "contributes": {
-    "customEditors": [
-      {
-        "viewType": "mindmap.editor",
-        "displayName": "Mind Map Editor",
-        "selector": [
-          {
-            "filenamePattern": "*.md"
-          }
-        ],
-        "priority": "option"
-      }
-    ],
     "commands": [
       {
-        "command": "mindmap.openAsMindMap",
-        "title": "Open as Mind Map",
-        "category": "Mind Map"
+        "command": "mindmap.openMindMap",
+        "title": "マインドマップとして開く",
+        "category": "Mind Map",
+        "icon": "$(type-hierarchy)"
       }
     ],
     "menus": {
-      "explorer/context": [
+      "editor/title": [
         {
-          "command": "mindmap.openAsMindMap",
-          "when": "resourceExtname == .md",
+          "command": "mindmap.openMindMap",
+          "when": "editorLangId == markdown",
           "group": "navigation"
         }
       ],
-      "editor/title": [
+      "explorer/context": [
         {
-          "command": "mindmap.openAsMindMap",
+          "command": "mindmap.openMindMap",
           "when": "resourceExtname == .md",
           "group": "navigation"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "mindmap.openMindMap",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorLangId == markdown"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "node esbuild.js --production",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package",
-    "lint": "eslint src --ext ts"
+    "package": "vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.80.0",
-    "@vscode/vsce": "^2.0.0",
+    "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.3.0"
   }
 }

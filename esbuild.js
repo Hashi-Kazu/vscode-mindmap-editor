@@ -1,6 +1,7 @@
 const esbuild = require('esbuild');
-const isWatch = process.argv.includes('--watch');
-const isProduction = process.argv.includes('--production');
+
+const production = process.argv.includes('--production');
+const watch = process.argv.includes('--watch');
 
 const buildOptions = {
   entryPoints: ['src/extension.ts'],
@@ -9,17 +10,22 @@ const buildOptions = {
   external: ['vscode'],
   format: 'cjs',
   platform: 'node',
-  sourcemap: !isProduction,
-  minify: isProduction,
+  sourcemap: !production,
+  minify: production,
+  logLevel: 'info',
 };
 
-if (isWatch) {
-  esbuild.context(buildOptions).then(ctx => {
-    ctx.watch();
+async function main() {
+  if (watch) {
+    const ctx = await esbuild.context(buildOptions);
+    await ctx.watch();
     console.log('Watching for changes...');
-  });
-} else {
-  esbuild.build(buildOptions).then(() => {
-    console.log('Build complete.');
-  }).catch(() => process.exit(1));
+  } else {
+    await esbuild.build(buildOptions);
+  }
 }
+
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

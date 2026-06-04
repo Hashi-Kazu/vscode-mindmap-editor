@@ -1,656 +1,730 @@
-// @ts-check
+// Markdown Mind Map Editor — Webview Script
+// Runs inside the VS Code WebviewPanel (sandboxed browser context)
 (function () {
   'use strict';
 
-  // @ts-ignore
   const vscode = acquireVsCodeApi();
 
-  // ── Layout constants ──────────────────────────────────────────────────────
-  const NODE_W = 160;
+  // ─── Constants ────────────────────────────────────────────────────────────
+
+  const NODE_W = 180;
   const NODE_H = 36;
-  const H_GAP = 90;   // horizontal gap between levels
-  const V_GAP = 14;   // vertical gap between sibling nodes
+  const H_SPACE = 240;  // horizontal distance between levels
+  const V_GAP = 16;     // vertical gap between siblings
+  const PAD = 60;       // canvas padding
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  let rootNode = null;
-  let baseLevel = 0;
+  // Level colours (border + connection)
+  const LEVEL_COLORS = [
+    '#569cd6', // 0 root
+    '#569cd6', // 1 H1
+    '#4ec9b0', // 2 H2
+    '#dcdcaa', // 3 H3
+    '#ce9178', // 4 H4
+    '#9cdcfe', // 5 H5
+    '#c586c0', // 6 H6
+  ];
 
-  let transform = { x: 60, y: 60, scale: 1 };
+  // ─── State ────────────────────────────────────────────────────────────────
+
+  let root = null;
+  let selectedId = null;
+  let editingId = null;
+  let transform = { x: 80, y: 0, scale: 1 };
+  let contextTarget = null;
 
   // Drag state
-  let dragNode = null;
-  let dragStartClient = null;
-  let isDragging = false;
-  let ghostEl = null;
-  let dropTarget = null;
-  let dropPosition = null; // 'child' | 'before' | 'after'
+  let dragState = null; // { node, startX, startY, moved, ghost }
 
   // Pan state
-  let isPanning = false;
-  let panStart = null;
+  let panState = null; // { startMouseX, startMouseY, startTx, startTy }
 
-  // Edit state
-  let editingNode = null;
-  let pendingConfirm = null;
+  // ─── DOM refs ─────────────────────────────────────────────────────────────
 
-  // Counter for unique IDs in new nodes
-  let nodeIdCounter = Date.now();
+  const stage = document.getElementById('stage');
+  const svgLayer = document.getElementById('svg-layer');
+  const nodeLayer = document.getElementById('node-layer');
+  const dropIndicator = document.getElementById('drop-indicator');
+  const ctxMenu = document.getElementById('context-menu');
 
-  // ── DOM refs ──────────────────────────────────────────────────────────────
-  const svg = /** @type {SVGSVGElement} */ (document.getElementById('mindmap-svg'));
-  const treeGroup = document.getElementById('tree-group');
-  const svgContainer = document.getElementById('svg-container');
-  const editOverlay = document.getElementById('edit-overlay');
-  const editInput = /** @type {HTMLInputElement} */ (document.getElementById('edit-input'));
+  // ─── Layout ───────────────────────────────────────────────────────────────
 
-  // ── Message handling from extension ──────────────────────────────────────
-  window.addEventListener('message', event => {
-    const msg = event.data;
-    switch (msg.type) {
-      case 'update':
-        rootNode = msg.data.root;
-        baseLevel = msg.data.baseLevel;
-        render();
-        break;
-      case 'confirmResult':
-        if (pendingConfirm && pendingConfirm.id === msg.id) {
-          pendingConfirm.resolve(msg.confirmed);
-          pendingConfirm = null;
-        }
-        break;
+  /** Compute the total vertical space a node's subtree needs */
+  function computeSubtreeH(node) {
+    if (!node.children.length || node.collapsed) {
+      node._sh = NODE_H;
+      return;
     }
-  });
+    node.children.forEach(computeSubtreeH);
+    const childSum = node.children.reduce((s, c) => s + c._sh, 0);
+    const gaps = (node.children.length - 1) * V_GAP;
+    node._sh = Math.max(NODE_H, childSum + gaps);
+  }
 
-  // ── Layout ────────────────────────────────────────────────────────────────
-  function computeLayout(root) {
-    let leafIdx = 0;
+  /** Assign x/y positions to every node */
+  function assignPositions(node, x, topY) {
+    node._x = x;
+    node._y = topY + node._sh / 2 - NODE_H / 2;
 
-    function assign(node, depth) {
-      node._x = depth * (NODE_W + H_GAP);
-      const children = node.collapsed ? [] : node.children;
-      if (children.length === 0) {
-        node._y = leafIdx * (NODE_H + V_GAP);
-        leafIdx++;
-      } else {
-        children.forEach(c => assign(c, depth + 1));
-        node._y =
-          (children[0]._y + children[children.length - 1]._y) / 2;
+    if (!node.collapsed && node.children.length) {
+      let cy = topY;
+      for (const child of node.children) {
+        assignPositions(child, x + H_SPACE, cy);
+        cy += child._sh + V_GAP;
       }
     }
-
-    assign(root, 0);
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  function layout() {
+    if (!root) return;
+    computeSubtreeH(root);
+    assignPositions(root, PAD, PAD);
+  }
+
+  /** Bounding box of all visible nodes */
+  function getBounds(node) {
+    const b = {
+      minX: node._x,
+      maxX: node._x + NODE_W,
+      minY: node._y,
+      maxY: node._y + NODE_H,
+    };
+    if (!node.collapsed) {
+      for (const c of node.children) {
+        const cb = getBounds(c);
+        if (cb.minX < b.minX) b.minX = cb.minX;
+        if (cb.maxX > b.maxX) b.maxX = cb.maxX;
+        if (cb.minY < b.minY) b.minY = cb.minY;
+        if (cb.maxY > b.maxY) b.maxY = cb.maxY;
+      }
+    }
+    return b;
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   function render() {
-    if (!rootNode) return;
-    computeLayout(rootNode);
-    treeGroup.innerHTML = '';
-    // Transparent rect so empty-space clicks register for panning
-    const bg = svgEl('rect');
-    bg.setAttribute('x', '-5000'); bg.setAttribute('y', '-5000');
-    bg.setAttribute('width', '10000'); bg.setAttribute('height', '10000');
-    bg.setAttribute('fill', 'none');
-    bg.setAttribute('pointer-events', 'all');
-    treeGroup.appendChild(bg);
-    drawEdges(treeGroup, rootNode);
-    drawNodes(treeGroup, rootNode, true);
+    if (!root) return;
+    layout();
+
+    const bounds = getBounds(root);
+    const W = bounds.maxX + PAD;
+    const H = bounds.maxY + PAD;
+
+    svgLayer.setAttribute('width', W);
+    svgLayer.setAttribute('height', H);
+    svgLayer.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    nodeLayer.style.width = W + 'px';
+    nodeLayer.style.height = H + 'px';
+
+    svgLayer.innerHTML = '';
+    nodeLayer.innerHTML = '';
+
+    drawConnections(root, svgLayer);
+    drawNodes(root, nodeLayer);
+
     applyTransform();
-    // Defer fitToScreen so the SVG has valid dimensions after paint
-    requestAnimationFrame(fitToScreen);
   }
 
-  function applyTransform() {
-    treeGroup.setAttribute(
-      'transform',
-      `translate(${transform.x}, ${transform.y}) scale(${transform.scale})`
-    );
-  }
+  function drawConnections(node, parent) {
+    if (node.collapsed || !node.children.length) return;
+    const color = LEVEL_COLORS[Math.min(node.level + 1, LEVEL_COLORS.length - 1)];
 
-  // ── Edges ─────────────────────────────────────────────────────────────────
-  function drawEdges(parent, node) {
-    const children = node.collapsed ? [] : node.children;
-    for (const child of children) {
+    for (const child of node.children) {
       const x1 = node._x + NODE_W;
       const y1 = node._y + NODE_H / 2;
       const x2 = child._x;
       const y2 = child._y + NODE_H / 2;
-      const mx = (x1 + x2) / 2;
+      const cx = (x1 + x2) / 2;
 
-      const path = svgEl('path');
-      path.setAttribute('class', 'edge');
-      path.setAttribute(
-        'd',
-        `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
-      );
-      parent.appendChild(path);
-      drawEdges(parent, child);
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
+      p.setAttribute('fill', 'none');
+      p.setAttribute('stroke', color);
+      p.setAttribute('stroke-width', node.level <= 1 ? '2.5' : '2');
+      p.setAttribute('stroke-opacity', '0.75');
+      parent.appendChild(p);
+
+      drawConnections(child, parent);
     }
   }
 
-  // ── Nodes ─────────────────────────────────────────────────────────────────
-  function drawNodes(parent, node, isRoot) {
-    const g = svgEl('g');
-    g.setAttribute('class', 'node-group' + (isRoot ? ' is-root' : ''));
-    g.setAttribute('transform', `translate(${node._x}, ${node._y})`);
-    g.dataset.nodeId = node.id;
+  function drawNodes(node, parent) {
+    const div = document.createElement('div');
+    div.className = 'node';
+    div.dataset.id = node.id;
+    div.dataset.level = node.level;
+    div.style.left = node._x + 'px';
+    div.style.top = node._y + 'px';
+    div.style.width = NODE_W + 'px';
+    div.style.height = NODE_H + 'px';
 
-    // Background rect
-    const rect = svgEl('rect');
-    rect.setAttribute('class', 'node-rect');
-    rect.setAttribute('width', NODE_W);
-    rect.setAttribute('height', NODE_H);
-    rect.setAttribute('rx', 6);
-    g.appendChild(rect);
+    const col = LEVEL_COLORS[Math.min(node.level, LEVEL_COLORS.length - 1)];
+    div.style.setProperty('--node-color', col);
 
-    // Label (truncated)
-    const text = svgEl('text');
-    text.setAttribute('class', 'node-text');
-    text.setAttribute('x', NODE_W / 2);
-    text.setAttribute('y', NODE_H / 2 + 1);
-    text.setAttribute('dominant-baseline', 'middle');
-    text.setAttribute('text-anchor', 'middle');
-    text.textContent = truncate(node.text, 20);
-    g.appendChild(text);
+    if (node.id === selectedId) div.classList.add('selected');
+    if (node.id === editingId) div.classList.add('editing');
 
-    // Collapse toggle
-    if (node.children.length > 0) {
-      const tog = svgEl('circle');
-      tog.setAttribute('class', 'collapse-toggle');
-      tog.setAttribute('cx', NODE_W + 10);
-      tog.setAttribute('cy', NODE_H / 2);
-      tog.setAttribute('r', 9);
-      g.appendChild(tog);
-
-      const togTxt = svgEl('text');
-      togTxt.setAttribute('class', 'collapse-toggle-text');
-      togTxt.setAttribute('x', NODE_W + 10);
-      togTxt.setAttribute('y', NODE_H / 2 + 1);
-      togTxt.setAttribute('dominant-baseline', 'middle');
-      togTxt.setAttribute('text-anchor', 'middle');
-      togTxt.textContent = node.collapsed ? '+' : '−';
-      g.appendChild(togTxt);
-
-      tog.addEventListener('click', e => {
+    // Collapse toggle button
+    if (node.children.length) {
+      const btn = document.createElement('button');
+      btn.className = 'toggle-btn';
+      btn.textContent = node.collapsed ? '▶' : '▼';
+      btn.title = node.collapsed ? '展開' : '折りたたむ';
+      btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        node.collapsed = !node.collapsed;
-        render();
-        sendUpdate();
+        toggleCollapse(node);
       });
-      togTxt.addEventListener('click', e => {
-        e.stopPropagation();
-        node.collapsed = !node.collapsed;
-        render();
-        sendUpdate();
-      });
+      div.appendChild(btn);
     }
 
-    // Add-child button (top-right)
-    const addBtn = makeActionBtn('+', NODE_W + 26, 3, 'add-btn');
-    addBtn.addEventListener('click', e => { e.stopPropagation(); addChild(node); });
-    g.appendChild(addBtn);
+    // Label
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = node.text;
+    div.appendChild(label);
 
-    // Add-sibling button (shown only for non-root)
-    if (!isRoot) {
-      const sibBtn = makeActionBtn('⊕', NODE_W + 26, NODE_H - 16, 'add-sibling-btn add-btn');
-      sibBtn.addEventListener('click', e => { e.stopPropagation(); addSibling(node); });
-      g.appendChild(sibBtn);
-
-      // Delete button
-      const delBtn = makeActionBtn('×', NODE_W + 48, (NODE_H - 13) / 2, 'delete-btn');
-      delBtn.addEventListener('click', e => { e.stopPropagation(); deleteNode(node); });
-      g.appendChild(delBtn);
-    }
-
-    // Double-click → inline edit
-    g.addEventListener('dblclick', e => {
+    // Events
+    div.addEventListener('click', (e) => {
       e.stopPropagation();
-      startEdit(node, g);
+      hideContextMenu();
+      // Update selection visually WITHOUT calling render() — render() destroys the
+      // current div and breaks the subsequent dblclick event.
+      document.querySelectorAll('.node.selected').forEach((el) => el.classList.remove('selected'));
+      div.classList.add('selected');
+      selectedId = node.id;
     });
 
-    // Mousedown → drag
-    g.addEventListener('mousedown', e => {
-      if (e.button !== 0) return;
-      if (
-        e.target.classList.contains('collapse-toggle') ||
-        e.target.classList.contains('collapse-toggle-text')
-      ) return;
+    div.addEventListener('dblclick', (e) => {
       e.stopPropagation();
-      if (!isRoot) beginDrag(node, e);
+      // Find the current label element in the live div (click may have re-styled it)
+      const liveLabel = div.querySelector('.label');
+      if (liveLabel) beginEdit(node, div, liveLabel);
     });
 
-    parent.appendChild(g);
+    div.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e, node);
+    });
 
-    // Recurse
-    const children = node.collapsed ? [] : node.children;
-    for (const child of children) {
-      drawNodes(parent, child, false);
+    div.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && editingId !== node.id) {
+        beginDrag(e, node);
+      }
+    });
+
+    parent.appendChild(div);
+
+    if (!node.collapsed) {
+      for (const child of node.children) {
+        drawNodes(child, parent);
+      }
     }
   }
 
-  function makeActionBtn(label, cx, cy, className) {
-    const g = svgEl('g');
-    g.setAttribute('class', `action-btn ${className}`);
+  // ─── Transform / Pan / Zoom ───────────────────────────────────────────────
 
-    const circle = svgEl('circle');
-    circle.setAttribute('cx', cx + 6);
-    circle.setAttribute('cy', cy + 6);
-    circle.setAttribute('r', 7);
-    g.appendChild(circle);
-
-    const text = svgEl('text');
-    text.setAttribute('x', cx + 6);
-    text.setAttribute('y', cy + 7);
-    text.setAttribute('dominant-baseline', 'middle');
-    text.setAttribute('text-anchor', 'middle');
-    text.textContent = label;
-    g.appendChild(text);
-
-    return g;
+  function applyTransform() {
+    const t = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`;
+    svgLayer.style.transform = t;
+    nodeLayer.style.transform = t;
   }
 
-  // ── Drag & Drop ────────────────────────────────────────────────────────────
-  function beginDrag(node, e) {
-    dragNode = node;
-    dragStartClient = { x: e.clientX, y: e.clientY };
-    isDragging = false;
+  function fitView() {
+    if (!root) return;
+    const rect = stage.getBoundingClientRect();
+    const b = getBounds(root);
+    const w = b.maxX - b.minX + PAD * 2;
+    const h = b.maxY - b.minY + PAD * 2;
+    const scaleX = rect.width / w;
+    const scaleY = rect.height / h;
+    transform.scale = Math.min(scaleX, scaleY, 1.2);
+    transform.x = (rect.width - w * transform.scale) / 2 + (PAD - b.minX) * transform.scale;
+    transform.y = (rect.height - h * transform.scale) / 2 + (PAD - b.minY) * transform.scale;
+    applyTransform();
+  }
 
-    document.addEventListener('mousemove', onDragMove);
-    document.addEventListener('mouseup', onDragEnd);
+  stage.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    // Start pan when clicking on empty space (stage, svg-layer, or connection paths).
+    // Node mousedown calls stopPropagation, so nodes never reach here.
+    const nodeEl = e.target.closest ? e.target.closest('.node') : null;
+    if (!nodeEl) {
+      panState = {
+        startMouseX: e.clientX,
+        startMouseY: e.clientY,
+        startTx: transform.x,
+        startTy: transform.y,
+      };
+      stage.style.cursor = 'grabbing';
+    }
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (panState) {
+      transform.x = panState.startTx + e.clientX - panState.startMouseX;
+      transform.y = panState.startTy + e.clientY - panState.startMouseY;
+      applyTransform();
+    }
+    if (dragState) {
+      onDragMove(e);
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (panState) {
+      panState = null;
+      stage.style.cursor = '';
+    }
+    if (dragState) {
+      onDragEnd(e);
+    }
+  });
+
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const rect = stage.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    transform.x = mx - (mx - transform.x) * delta;
+    transform.y = my - (my - transform.y) * delta;
+    transform.scale = Math.max(0.15, Math.min(4, transform.scale * delta));
+    applyTransform();
+  }, { passive: false });
+
+  document.addEventListener('click', (e) => {
+    if (!ctxMenu.contains(e.target)) hideContextMenu();
+  });
+
+  // ─── Toolbar ─────────────────────────────────────────────────────────────
+
+  document.getElementById('btn-zoom-in').addEventListener('click', () => {
+    transform.scale = Math.min(4, transform.scale * 1.25);
+    applyTransform();
+  });
+  document.getElementById('btn-zoom-out').addEventListener('click', () => {
+    transform.scale = Math.max(0.15, transform.scale / 1.25);
+    applyTransform();
+  });
+  document.getElementById('btn-fit').addEventListener('click', fitView);
+  document.getElementById('btn-expand-all').addEventListener('click', () => {
+    setAllCollapsed(root, false);
+    render();
+    postCollapseState();
+  });
+  document.getElementById('btn-collapse-all').addEventListener('click', () => {
+    if (root) {
+      root.children.forEach((c) => setAllCollapsed(c, true));
+    }
+    render();
+    postCollapseState();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') { fitView(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === '=') {
+      transform.scale = Math.min(4, transform.scale * 1.25); applyTransform();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') {
+      transform.scale = Math.max(0.15, transform.scale / 1.25); applyTransform();
+    }
+    if (e.key === 'Delete' && selectedId && !editingId) {
+      const node = findById(root, selectedId);
+      if (node) deleteNode(node);
+    }
+    if (e.altKey && e.key === 'ArrowUp' && selectedId && !editingId) {
+      e.preventDefault();
+      const node = findById(root, selectedId);
+      if (node) moveNodeUp(node);
+    }
+    if (e.altKey && e.key === 'ArrowDown' && selectedId && !editingId) {
+      e.preventDefault();
+      const node = findById(root, selectedId);
+      if (node) moveNodeDown(node);
+    }
+  });
+
+  // ─── Node Operations ──────────────────────────────────────────────────────
+
+  function toggleCollapse(node) {
+    node.collapsed = !node.collapsed;
+    render();
+    postCollapseState();
+  }
+
+  function setAllCollapsed(node, val) {
+    node.collapsed = val && node.children.length > 0;
+    node.children.forEach((c) => setAllCollapsed(c, val));
+  }
+
+  function postCollapseState() {
+    if (!root) return;
+    const paths = extractCollapsedPaths(root, '');
+    vscode.postMessage({ type: 'saveCollapseState', collapsedPaths: paths });
+  }
+
+  function extractCollapsedPaths(node, parentPath) {
+    const myPath = parentPath ? `${parentPath}/${node.text}` : node.text;
+    const result = [];
+    if (node.collapsed && node.children.length) result.push(myPath);
+    node.children.forEach((c) => result.push(...extractCollapsedPaths(c, myPath)));
+    return result;
+  }
+
+  function postStructuralEdit() {
+    vscode.postMessage({ type: 'structuralEdit', root });
+  }
+
+  // ─── Move Node Up / Down (sibling reorder) ────────────────────────────────
+
+  function moveNodeUp(node) {
+    if (!root) return;
+    const parent = findParent(root, node);
+    if (!parent) return;
+    const idx = parent.children.indexOf(node);
+    if (idx <= 0) return;
+    parent.children[idx] = parent.children[idx - 1];
+    parent.children[idx - 1] = node;
+    postStructuralEdit();
+    render();
+  }
+
+  function moveNodeDown(node) {
+    if (!root) return;
+    const parent = findParent(root, node);
+    if (!parent) return;
+    const idx = parent.children.indexOf(node);
+    if (idx >= parent.children.length - 1) return;
+    parent.children[idx] = parent.children[idx + 1];
+    parent.children[idx + 1] = node;
+    postStructuralEdit();
+    render();
+  }
+
+  // ─── Inline Editing ───────────────────────────────────────────────────────
+
+  function beginEdit(node, div, label) {
+    if (editingId) return;
+    editingId = node.id;
+    selectedId = node.id;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'edit-input';
+    input.value = node.text;
+    label.replaceWith(input);
+    input.focus();
+    input.select();
+    div.classList.add('editing');
+
+    const commit = () => {
+      const trimmed = input.value.trim();
+      editingId = null;
+      div.classList.remove('editing');
+      if (trimmed && trimmed !== node.text) {
+        node.text = trimmed;
+        vscode.postMessage({ type: 'renameNode', id: node.id, newText: trimmed });
+      }
+      render();
+    };
+
+    const cancel = () => {
+      editingId = null;
+      render();
+    };
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { input.removeEventListener('blur', commit); cancel(); }
+      e.stopPropagation();
+    });
+  }
+
+  // ─── Context Menu ─────────────────────────────────────────────────────────
+
+  function showContextMenu(e, node) {
+    contextTarget = node;
+    selectedId = node.id;
+
+    // Show/hide move items based on sibling position
+    const parent = root ? findParent(root, node) : null;
+    const idx = parent ? parent.children.indexOf(node) : -1;
+    const elUp = document.getElementById('ctx-move-up');
+    const elDown = document.getElementById('ctx-move-down');
+    if (elUp)   elUp.classList.toggle('disabled', !parent || idx <= 0);
+    if (elDown) elDown.classList.toggle('disabled', !parent || idx >= parent.children.length - 1);
+
+    ctxMenu.style.left = e.clientX + 'px';
+    ctxMenu.style.top = e.clientY + 'px';
+    ctxMenu.classList.remove('hidden');
+
+    // Update selection highlight without a full re-render
+    document.querySelectorAll('.node.selected').forEach((el) => el.classList.remove('selected'));
+    const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
+    if (nodeEl) nodeEl.classList.add('selected');
+  }
+
+  function hideContextMenu() {
+    ctxMenu.classList.add('hidden');
+    contextTarget = null;
+  }
+
+  document.getElementById('ctx-add-child').addEventListener('click', () => {
+    if (!contextTarget) return;
+    const newNode = makeNode('新しいノード', contextTarget.level + 1);
+    contextTarget.children.push(newNode);
+    contextTarget.collapsed = false;
+    selectedId = newNode.id;
+    hideContextMenu();
+    postStructuralEdit();
+    render();
+  });
+
+  document.getElementById('ctx-add-sibling').addEventListener('click', () => {
+    if (!contextTarget || !root) return;
+    const parent = findParent(root, contextTarget);
+    if (!parent) { hideContextMenu(); return; }
+    const newNode = makeNode('新しいノード', contextTarget.level);
+    const idx = parent.children.indexOf(contextTarget);
+    parent.children.splice(idx + 1, 0, newNode);
+    selectedId = newNode.id;
+    hideContextMenu();
+    postStructuralEdit();
+    render();
+  });
+
+  document.getElementById('ctx-move-up').addEventListener('click', () => {
+    if (!contextTarget) return;
+    const node = contextTarget;
+    hideContextMenu();
+    moveNodeUp(node);
+  });
+
+  document.getElementById('ctx-move-down').addEventListener('click', () => {
+    if (!contextTarget) return;
+    const node = contextTarget;
+    hideContextMenu();
+    moveNodeDown(node);
+  });
+
+  document.getElementById('ctx-delete').addEventListener('click', () => {
+    if (!contextTarget) return;
+    deleteNode(contextTarget);
+    hideContextMenu();
+  });
+
+  function deleteNode(node) {
+    if (!root) return;
+    if (node.id === root.id) return; // can't delete root
+
+    const hasChildren = node.children.length > 0;
+    if (hasChildren) {
+      if (!confirm(`"${node.text}" とすべての子ノードを削除しますか？`)) return;
+    }
+
+    const parent = findParent(root, node);
+    if (!parent) return;
+    parent.children = parent.children.filter((c) => c.id !== node.id);
+
+    if (selectedId === node.id) selectedId = null;
+    postStructuralEdit();
+    render();
+  }
+
+  // ─── Drag & Drop ──────────────────────────────────────────────────────────
+
+  function beginDrag(e, node) {
+    if (node.id === root?.id) return; // root can't be dragged
+    e.preventDefault();
+    e.stopPropagation(); // prevent stage from starting a pan simultaneously
+
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.textContent = node.text;
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top = e.clientY + 'px';
+    document.body.appendChild(ghost);
+
+    dragState = { node, startX: e.clientX, startY: e.clientY, moved: false, ghost };
   }
 
   function onDragMove(e) {
-    if (!dragNode) return;
-    const dx = e.clientX - dragStartClient.x;
-    const dy = e.clientY - dragStartClient.y;
-
-    if (!isDragging && Math.sqrt(dx * dx + dy * dy) > 6) {
-      isDragging = true;
-      // Mark source node as dragging
-      const srcEl = document.querySelector(`[data-node-id="${dragNode.id}"]`);
-      if (srcEl) srcEl.classList.add('dragging');
-      svgContainer.classList.add('grabbing');
+    if (!dragState) return;
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    if (!dragState.moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+      dragState.moved = true;
     }
-
-    if (!isDragging) return;
-
-    // Move ghost
-    if (!ghostEl) {
-      ghostEl = createGhost();
-      treeGroup.appendChild(ghostEl);
-    }
-
-    const svgPt = clientToSvg(e.clientX, e.clientY);
-    ghostEl.setAttribute(
-      'transform',
-      `translate(${svgPt.x - NODE_W / 2}, ${svgPt.y - NODE_H / 2})`
-    );
-
-    // Find drop target
-    updateDropTarget(svgPt);
-  }
-
-  function createGhost() {
-    const g = svgEl('g');
-    g.setAttribute('class', 'node-group drag-ghost');
-
-    const rect = svgEl('rect');
-    rect.setAttribute('class', 'node-rect');
-    rect.setAttribute('width', NODE_W);
-    rect.setAttribute('height', NODE_H);
-    rect.setAttribute('rx', 6);
-    g.appendChild(rect);
-
-    const text = svgEl('text');
-    text.setAttribute('class', 'node-text');
-    text.setAttribute('x', NODE_W / 2);
-    text.setAttribute('y', NODE_H / 2 + 1);
-    text.setAttribute('dominant-baseline', 'middle');
-    text.setAttribute('text-anchor', 'middle');
-    text.textContent = truncate(dragNode.text, 20);
-    g.appendChild(text);
-
-    return g;
-  }
-
-  function updateDropTarget(svgPt) {
-    let best = null;
-    let bestDist = Infinity;
-
-    function check(node) {
-      if (node === dragNode) return;
-      if (isDescendantOrSelf(dragNode, node)) return;
-
-      const cx = node._x + NODE_W / 2;
-      const cy = node._y + NODE_H / 2;
-      const dist = Math.hypot(svgPt.x - cx, svgPt.y - cy);
-
-      if (dist < 120 && dist < bestDist) {
-        bestDist = dist;
-        best = node;
-      }
-
-      const children = node.collapsed ? [] : node.children;
-      for (const c of children) check(c);
-    }
-
-    check(rootNode);
-
-    // Clear previous highlight
-    if (dropTarget) {
-      const el = document.querySelector(`[data-node-id="${dropTarget.id}"]`);
-      if (el) el.classList.remove('drop-target');
-    }
-
-    dropTarget = best;
-
-    if (dropTarget) {
-      const el = document.querySelector(`[data-node-id="${dropTarget.id}"]`);
-      if (el) el.classList.add('drop-target');
+    if (dragState.moved) {
+      dragState.ghost.style.left = (e.clientX + 12) + 'px';
+      dragState.ghost.style.top = (e.clientY - 18) + 'px';
+      highlightDropTarget(e, dragState.node);
     }
   }
 
   function onDragEnd(e) {
-    document.removeEventListener('mousemove', onDragMove);
-    document.removeEventListener('mouseup', onDragEnd);
+    const ds = dragState;
+    dragState = null;
+    ds.ghost.remove();
+    dropIndicator.classList.remove('visible');
 
-    svgContainer.classList.remove('grabbing');
+    if (!ds.moved) return;
 
-    // Restore source node appearance
-    const srcEl = document.querySelector(`[data-node-id="${dragNode?.id}"]`);
-    if (srcEl) srcEl.classList.remove('dragging');
-
-    // Remove ghost
-    if (ghostEl) {
-      ghostEl.remove();
-      ghostEl = null;
+    const result = getDropTarget(e, ds.node);
+    if (result) {
+      performDrop(ds.node, result.targetNode, result.position);
     }
 
-    // Clear drop target highlight
-    if (dropTarget) {
-      const el = document.querySelector(`[data-node-id="${dropTarget.id}"]`);
-      if (el) el.classList.remove('drop-target');
-    }
-
-    if (isDragging && dropTarget && dragNode) {
-      // Determine drop position
-      const svgPt = clientToSvg(e.clientX, e.clientY);
-      const targetCenterY = dropTarget._y + NODE_H / 2;
-
-      const threshold = NODE_H * 0.35;
-      const dy = svgPt.y - targetCenterY;
-
-      if (Math.abs(dy) < threshold || dropTarget === rootNode) {
-        // Drop as child of target
-        removeNodeFromTree(dragNode);
-        dropTarget.children.push(dragNode);
-        dropTarget.collapsed = false;
-      } else {
-        // Drop as sibling (before or after)
-        const before = dy < 0;
-        insertAsSibling(dragNode, dropTarget, before);
-      }
-
-      render();
-      sendUpdate();
-    }
-
-    dragNode = null;
-    dragStartClient = null;
-    isDragging = false;
-    dropTarget = null;
-  }
-
-  // ── Node operations ────────────────────────────────────────────────────────
-  function addChild(parentNode) {
-    const newNode = makeNode('New Node');
-    parentNode.children.push(newNode);
-    parentNode.collapsed = false;
-    render();
-    sendUpdate();
-
-    // Focus edit on new node after render
-    requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-node-id="${newNode.id}"]`);
-      if (el) startEdit(newNode, el);
-    });
-  }
-
-  function addSibling(node) {
-    const newNode = makeNode('New Node');
-    const inserted = insertAsSibling(newNode, node, false);
-    if (inserted) {
-      render();
-      sendUpdate();
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-node-id="${newNode.id}"]`);
-        if (el) startEdit(newNode, el);
-      });
-    }
-  }
-
-  async function deleteNode(node) {
-    if (node.children.length > 0) {
-      const confirmed = await showConfirm(
-        `"${node.text}" には子ノードが ${node.children.length} 個あります。すべて削除しますか？`
-      );
-      if (!confirmed) return;
-    }
-    removeNodeFromTree(node);
-    render();
-    sendUpdate();
-  }
-
-  // ── Inline editing ──────────────────────────────────────────────────────────
-  function startEdit(node, nodeEl) {
-    editingNode = node;
-
-    const svgRect = svg.getBoundingClientRect();
-    const containerRect = svgContainer.getBoundingClientRect();
-    const nodeRect = nodeEl.getBoundingClientRect();
-
-    const left = nodeRect.left - containerRect.left;
-    const top = nodeRect.top - containerRect.top;
-
-    editInput.style.left = left + 'px';
-    editInput.style.top = top + 'px';
-    editInput.style.width = nodeRect.width + 'px';
-    editInput.style.height = nodeRect.height + 'px';
-    editInput.value = node.text;
-    editOverlay.style.display = 'block';
-    editInput.style.display = 'block';
-    editInput.focus();
-    editInput.select();
-  }
-
-  function commitEdit() {
-    if (!editingNode) return;
-    const newText = editInput.value.trim();
-    if (newText && newText !== editingNode.text) {
-      editingNode.text = newText;
-      render();
-      sendUpdate();
-    }
-    editingNode = null;
-    editInput.style.display = 'none';
-    editOverlay.style.display = 'none';
-  }
-
-  editInput.addEventListener('blur', commitEdit);
-  editInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      editInput.blur();
-    } else if (e.key === 'Escape') {
-      editingNode = null;
-      editInput.style.display = 'none';
-      editOverlay.style.display = 'none';
-    }
-  });
-
-  // ── Pan & Zoom ─────────────────────────────────────────────────────────────
-  svgContainer.addEventListener('wheel', e => {
-    e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const rect = svg.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-
-    transform.x = mx - (mx - transform.x) * factor;
-    transform.y = my - (my - transform.y) * factor;
-    transform.scale = Math.min(Math.max(transform.scale * factor, 0.2), 4);
-
-    applyTransform();
-  }, { passive: false });
-
-  svgContainer.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    // Pan only when NOT clicking on a node
-    if (e.target.closest && e.target.closest('.node-group')) return;
-    isPanning = true;
-    panStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
-    svgContainer.classList.add('grabbing');
-  });
-
-  document.addEventListener('mousemove', e => {
-    if (!isPanning || !panStart) return;
-    transform.x = e.clientX - panStart.x;
-    transform.y = e.clientY - panStart.y;
-    applyTransform();
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (isPanning) {
-      isPanning = false;
-      panStart = null;
-      svgContainer.classList.remove('grabbing');
-    }
-  });
-
-  // ── Toolbar buttons ────────────────────────────────────────────────────────
-  document.getElementById('btn-text-editor').addEventListener('click', () => {
-    vscode.postMessage({ type: 'openTextEditor' });
-  });
-
-  document.getElementById('btn-zoom-in').addEventListener('click', () => {
-    transform.scale = Math.min(transform.scale * 1.2, 4);
-    applyTransform();
-  });
-
-  document.getElementById('btn-zoom-out').addEventListener('click', () => {
-    transform.scale = Math.max(transform.scale / 1.2, 0.2);
-    applyTransform();
-  });
-
-  document.getElementById('btn-fit').addEventListener('click', fitToScreen);
-
-  function fitToScreen() {
-    if (!rootNode) return;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-    function bounds(node) {
-      minX = Math.min(minX, node._x);
-      minY = Math.min(minY, node._y);
-      maxX = Math.max(maxX, node._x + NODE_W);
-      maxY = Math.max(maxY, node._y + NODE_H);
-      const children = node.collapsed ? [] : node.children;
-      children.forEach(bounds);
-    }
-    bounds(rootNode);
-
-    // Guard: layout coords not yet set
-    if (!isFinite(minX) || !isFinite(minY)) return;
-
-    const W = svg.clientWidth || svgContainer.clientWidth;
-    const H = svg.clientHeight || svgContainer.clientHeight;
-    if (!W || !H) return;
-
-    const pad = 60;
-    const treeW = maxX - minX || 1;
-    const treeH = maxY - minY || 1;
-
-    transform.scale = Math.min(
-      (W - pad * 2) / treeW,
-      (H - pad * 2) / treeH,
-      1.5
+    // Clear all highlights
+    document.querySelectorAll('.node.drop-over').forEach((el) =>
+      el.classList.remove('drop-over')
     );
-    transform.x = pad - minX * transform.scale;
-    transform.y = pad - minY * transform.scale;
-
-    applyTransform();
+    render();
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  function sendUpdate() {
-    vscode.postMessage({ type: 'updateTree', root: rootNode });
-  }
-
-  function svgEl(tag) {
-    return document.createElementNS('http://www.w3.org/2000/svg', tag);
-  }
-
-  function truncate(str, maxLen) {
-    return str.length > maxLen ? str.slice(0, maxLen - 1) + '…' : str;
-  }
-
-  function makeNode(text) {
-    return {
-      id: `new_${++nodeIdCounter}`,
-      text,
-      children: [],
-      collapsed: false,
-      bodyLines: [],
-    };
-  }
-
-  function clientToSvg(cx, cy) {
-    const rect = svg.getBoundingClientRect();
-    return {
-      x: (cx - rect.left - transform.x) / transform.scale,
-      y: (cy - rect.top - transform.y) / transform.scale,
-    };
-  }
-
-  function isDescendantOrSelf(target, ancestor) {
-    if (target === ancestor) return true;
-    const children = ancestor.collapsed ? [] : ancestor.children;
-    return children.some(c => isDescendantOrSelf(target, c));
-  }
-
-  function removeNodeFromTree(node) {
-    function remove(parent) {
-      const idx = parent.children.indexOf(node);
-      if (idx >= 0) {
-        parent.children.splice(idx, 1);
-        return true;
-      }
-      return parent.children.some(c => remove(c));
+  function highlightDropTarget(e, draggedNode) {
+    document.querySelectorAll('.node.drop-over').forEach((el) =>
+      el.classList.remove('drop-over')
+    );
+    const result = getDropTarget(e, draggedNode);
+    if (result) {
+      const el = document.querySelector(`.node[data-id="${result.targetNode.id}"]`);
+      if (el) el.classList.add('drop-over');
     }
-    remove(rootNode);
   }
 
-  /** Insert newNode before/after referenceNode within the same parent */
-  function insertAsSibling(newNode, referenceNode, before) {
-    function insert(parent) {
-      const idx = parent.children.indexOf(referenceNode);
-      if (idx >= 0) {
-        // Remove newNode from wherever it currently lives (if it exists in tree)
-        removeNodeFromTree(newNode);
-        const insertIdx = before ? idx : idx + 1;
-        parent.children.splice(insertIdx, 0, newNode);
-        return true;
-      }
-      return parent.children.some(c => insert(c));
+  function getDropTarget(e, draggedNode) {
+    // Convert client coords to stage-local (accounting for transform)
+    const stageRect = stage.getBoundingClientRect();
+    const sx = (e.clientX - stageRect.left - transform.x) / transform.scale;
+    const sy = (e.clientY - stageRect.top - transform.y) / transform.scale;
+
+    let best = null;
+    let bestDist = 40; // px tolerance in node space
+
+    collectDropCandidates(root, draggedNode, sx, sy, bestDist, (result, dist) => {
+      if (dist < bestDist) { bestDist = dist; best = result; }
+    });
+
+    return best;
+  }
+
+  function collectDropCandidates(node, dragged, sx, sy, tolerance, cb) {
+    if (node.id === dragged.id) return;
+    if (isDescendant(dragged, node)) return;
+
+    // Check if sx,sy is within the node rectangle (with tolerance)
+    const nx = node._x, ny = node._y, nw = NODE_W, nh = NODE_H;
+    if (sx >= nx - tolerance && sx <= nx + nw + tolerance &&
+        sy >= ny - tolerance && sy <= ny + nh + tolerance) {
+      // Determine position
+      const relY = sy - ny;
+      let position;
+      if (relY < nh * 0.25) position = 'before';
+      else if (relY > nh * 0.75) position = 'after';
+      else position = 'inside';
+
+      const cx = nx + nw / 2;
+      const cy = ny + nh / 2;
+      const dist = Math.sqrt((sx - cx) ** 2 + (sy - cy) ** 2);
+      cb({ targetNode: node, position }, dist);
     }
-    return insert(rootNode);
+
+    if (!node.collapsed) {
+      node.children.forEach((c) => collectDropCandidates(c, dragged, sx, sy, tolerance, cb));
+    }
   }
 
-  function showConfirm(text) {
-    return new Promise(resolve => {
-      const id = `confirm_${Date.now()}`;
-      pendingConfirm = { id, resolve };
-      vscode.postMessage({ type: 'showConfirm', text, id });
+  function performDrop(draggedNode, targetNode, position) {
+    if (!root) return;
+
+    const sourceParent = findParent(root, draggedNode);
+    if (!sourceParent) return;
+
+    // Remove from current parent
+    sourceParent.children = sourceParent.children.filter((c) => c.id !== draggedNode.id);
+
+    if (position === 'inside') {
+      draggedNode.level = targetNode.level + 1;
+      updateChildLevels(draggedNode);
+      targetNode.children.push(draggedNode);
+      targetNode.collapsed = false;
+    } else {
+      const targetParent = findParent(root, targetNode);
+      if (!targetParent) {
+        // Undo the remove
+        sourceParent.children.push(draggedNode);
+        return;
+      }
+      draggedNode.level = targetNode.level;
+      updateChildLevels(draggedNode);
+      const idx = targetParent.children.indexOf(targetNode);
+      const insertAt = position === 'before' ? idx : idx + 1;
+      targetParent.children.splice(insertAt, 0, draggedNode);
+    }
+
+    postStructuralEdit();
+  }
+
+  function isDescendant(ancestor, node) {
+    if (ancestor.id === node.id) return true;
+    return ancestor.children.some((c) => isDescendant(c, node));
+  }
+
+  function updateChildLevels(node) {
+    node.children.forEach((c) => {
+      c.level = node.level + 1;
+      updateChildLevels(c);
     });
   }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  let _idSeq = Date.now();
+  function makeNode(text, level) {
+    return { id: String(_idSeq++), text, level, children: [], collapsed: false, body: '' };
+  }
+
+  function findById(node, id) {
+    if (!node) return null;
+    if (node.id === id) return node;
+    for (const c of node.children) {
+      const found = findById(c, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function findParent(node, target) {
+    for (const c of node.children) {
+      if (c.id === target.id) return node;
+      const found = findParent(c, target);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // ─── Message from Extension ───────────────────────────────────────────────
+
+  let isFirstUpdate = true;
+
+  window.addEventListener('message', (event) => {
+    const msg = event.data;
+    if (msg.type === 'update') {
+      root = msg.root;
+      render();
+      if (isFirstUpdate) {
+        isFirstUpdate = false;
+        // Use rAF so the browser has painted at least once before fitting
+        requestAnimationFrame(() => requestAnimationFrame(fitView));
+      }
+    }
+  });
+
+  // Tell the extension the webview is ready to receive the initial tree.
+  // This is more reliable than a fixed setTimeout in the extension.
+  vscode.postMessage({ type: 'ready' });
 
 })();
