@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-import anthropic
+import subprocess
 
 # ---------------------------------------------------------------------------
 # Config
@@ -118,14 +118,27 @@ def main() -> None:
 
     prompt = build_prompt(issue_number, issue_title, issue_body, source_files)
 
-    print("Sending request to Claude via Anthropic SDK...")
-    client = anthropic.Anthropic()
-    message = client.messages.create(
-        model=MODEL,
-        max_tokens=8192,
-        messages=[{"role": "user", "content": prompt}],
+    system_prompt = (
+        "You are a JSON-only responder. "
+        "You must output a single valid JSON object and nothing else. "
+        "Do not use any tools. Do not write any explanation or commentary. "
+        "Your entire response must be parseable by json.loads()."
     )
-    raw = message.content[0].text.strip()
+
+    print("Sending request to Claude via Claude Code CLI...")
+    result = subprocess.run(
+        ["claude", "--print", "--model", MODEL, "--system-prompt", system_prompt],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        print(f"ERROR: claude CLI failed (exit {result.returncode})", file=sys.stderr)
+        print(f"stdout: {result.stdout[:2000]}", file=sys.stderr)
+        print(f"stderr: {result.stderr[:2000]}", file=sys.stderr)
+        sys.exit(1)
+    raw = result.stdout.strip()
 
     # Extract JSON: handle preamble text + ```json ... ``` or bare JSON object
     fence_match = re.search(r"```(?:json)?\s*\n([\s\S]*?)\n```", raw)
@@ -140,7 +153,7 @@ def main() -> None:
         response = json.loads(raw)
     except json.JSONDecodeError as exc:
         print(f"ERROR: Claude response is not valid JSON: {exc}", file=sys.stderr)
-        print("Raw response:", message.content[0].text[:2000], file=sys.stderr)
+        print("Raw response:", result.stdout[:2000], file=sys.stderr)
         sys.exit(1)
 
     summary = response.get("summary", "")
