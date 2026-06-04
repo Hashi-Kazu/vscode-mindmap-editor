@@ -239,6 +239,11 @@
   function fitView() {
     if (!root) return;
     const rect = stage.getBoundingClientRect();
+    // If the stage hasn't been laid out yet (dimensions are 0), retry next frame.
+    if (rect.width === 0 || rect.height === 0) {
+      requestAnimationFrame(() => requestAnimationFrame(fitView));
+      return;
+    }
     const b = getBounds(root);
     const w = b.maxX - b.minX + PAD * 2;
     const h = b.maxY - b.minY + PAD * 2;
