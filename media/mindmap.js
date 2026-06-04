@@ -86,9 +86,16 @@
     if (!rootNode) return;
     computeLayout(rootNode);
     treeGroup.innerHTML = '';
+    // Transparent rect so empty-space clicks register for panning
+    const bg = svgEl('rect');
+    bg.setAttribute('x', '-5000'); bg.setAttribute('y', '-5000');
+    bg.setAttribute('width', '10000'); bg.setAttribute('height', '10000');
+    bg.setAttribute('fill', 'transparent');
+    treeGroup.appendChild(bg);
     drawEdges(treeGroup, rootNode);
     drawNodes(treeGroup, rootNode, true);
     applyTransform();
+    fitToScreen();
   }
 
   function applyTransform() {
@@ -496,14 +503,11 @@
 
   svgContainer.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
-    // Only pan when clicking on background (svg/g elements, not node-groups)
-    if (e.target === svg || e.target === treeGroup ||
-        e.target.tagName === 'svg' ||
-        (e.target.closest && !e.target.closest('.node-group'))) {
-      isPanning = true;
-      panStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
-      svgContainer.classList.add('grabbing');
-    }
+    // Pan only when NOT clicking on a node
+    if (e.target.closest && e.target.closest('.node-group')) return;
+    isPanning = true;
+    panStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+    svgContainer.classList.add('grabbing');
   });
 
   document.addEventListener('mousemove', e => {
@@ -552,8 +556,13 @@
     }
     bounds(rootNode);
 
-    const W = svg.clientWidth;
-    const H = svg.clientHeight;
+    // Guard: layout coords not yet set
+    if (!isFinite(minX) || !isFinite(minY)) return;
+
+    const W = svg.clientWidth || svgContainer.clientWidth;
+    const H = svg.clientHeight || svgContainer.clientHeight;
+    if (!W || !H) return;
+
     const pad = 60;
     const treeW = maxX - minX || 1;
     const treeH = maxY - minY || 1;
@@ -641,8 +650,5 @@
       vscode.postMessage({ type: 'showConfirm', text, id });
     });
   }
-
-  // Initial fit after first render
-  setTimeout(fitToScreen, 100);
 
 })();
