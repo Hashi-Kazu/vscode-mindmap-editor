@@ -140,11 +140,7 @@
       _lastNodeCount = nodeCount;
       const rect = stage.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0 && isFinite(bounds.minX)) {
-        const w = bounds.maxX - bounds.minX + PAD * 2;
-        const h = bounds.maxY - bounds.minY + PAD * 2;
-        transform.scale = Math.min(rect.width / w, rect.height / h, 1.2);
-        transform.x = (rect.width - w * transform.scale) / 2 + (PAD - bounds.minX) * transform.scale;
-        transform.y = (rect.height - h * transform.scale) / 2 + (PAD - bounds.minY) * transform.scale;
+        _applyFit(rect, bounds);
       } else if (rect.width === 0 || rect.height === 0) {
         // Stage has no dimensions yet (first paint). Set the queued flag so the
         // ResizeObserver can trigger a re-fit once the layout settles. Also
@@ -277,6 +273,14 @@
     nodeLayer.style.transform = t;
   }
 
+  function _applyFit(rect, bounds) {
+    const w = bounds.maxX - bounds.minX + PAD * 2;
+    const h = bounds.maxY - bounds.minY + PAD * 2;
+    transform.scale = Math.min(rect.width / w, rect.height / h, 1.2);
+    transform.x = (rect.width - w * transform.scale) / 2 + (PAD - bounds.minX) * transform.scale;
+    transform.y = (rect.height - h * transform.scale) / 2 + (PAD - bounds.minY) * transform.scale;
+  }
+
   function fitView() {
     if (!root) return;
     const rect = stage.getBoundingClientRect();
@@ -288,11 +292,7 @@
     layout();
     const b = getBounds(root);
     if (!isFinite(b.minX) || !isFinite(b.minY) || !isFinite(b.maxX) || !isFinite(b.maxY)) return;
-    const w = b.maxX - b.minX + PAD * 2;
-    const h = b.maxY - b.minY + PAD * 2;
-    transform.scale = Math.min(rect.width / w, rect.height / h, 1.2);
-    transform.x = (rect.width - w * transform.scale) / 2 + (PAD - b.minX) * transform.scale;
-    transform.y = (rect.height - h * transform.scale) / 2 + (PAD - b.minY) * transform.scale;
+    _applyFit(rect, b);
     applyTransform();
   }
 
@@ -368,14 +368,13 @@
 
   // ─── Toolbar ─────────────────────────────────────────────────────────────
 
-  document.getElementById('btn-zoom-in').addEventListener('click', () => {
-    transform.scale = Math.min(4, transform.scale * 1.25);
+  function zoomBy(factor) {
+    transform.scale = Math.max(0.15, Math.min(4, transform.scale * factor));
     applyTransform();
-  });
-  document.getElementById('btn-zoom-out').addEventListener('click', () => {
-    transform.scale = Math.max(0.15, transform.scale / 1.25);
-    applyTransform();
-  });
+  }
+
+  document.getElementById('btn-zoom-in').addEventListener('click', () => zoomBy(1.25));
+  document.getElementById('btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
   document.getElementById('btn-fit').addEventListener('click', fitView);
   document.getElementById('btn-expand-all').addEventListener('click', () => {
     if (!selectedId || !root) return;
@@ -402,12 +401,8 @@
       return;
     }
     if (e.key === 'f' || e.key === 'F') { fitView(); return; }
-    if ((e.ctrlKey || e.metaKey) && e.key === '=') {
-      transform.scale = Math.min(4, transform.scale * 1.25); applyTransform();
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key === '-') {
-      transform.scale = Math.max(0.15, transform.scale / 1.25); applyTransform();
-    }
+    if ((e.ctrlKey || e.metaKey) && e.key === '=') { zoomBy(1.25); }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') { zoomBy(1 / 1.25); }
     if (e.key === 'Delete' && selectedId && !editingId) {
       const node = findById(root, selectedId);
       if (node) deleteNode(node);
@@ -415,12 +410,12 @@
     if (e.altKey && e.key === 'ArrowUp' && selectedId && !editingId) {
       e.preventDefault();
       const node = findById(root, selectedId);
-      if (node) moveNodeUp(node);
+      if (node) moveNode(node, -1);
     }
     if (e.altKey && e.key === 'ArrowDown' && selectedId && !editingId) {
       e.preventDefault();
       const node = findById(root, selectedId);
-      if (node) moveNodeDown(node);
+      if (node) moveNode(node, 1);
     }
   });
 
@@ -452,26 +447,14 @@
 
   // ─── Move Node Up / Down (sibling reorder) ────────────────────────────────
 
-  function moveNodeUp(node) {
+  function moveNode(node, delta) {
     if (!root) return;
     const parent = findParent(root, node);
     if (!parent) return;
     const idx = parent.children.indexOf(node);
-    if (idx <= 0) return;
-    parent.children[idx] = parent.children[idx - 1];
-    parent.children[idx - 1] = node;
-    postStructuralEdit();
-    render();
-  }
-
-  function moveNodeDown(node) {
-    if (!root) return;
-    const parent = findParent(root, node);
-    if (!parent) return;
-    const idx = parent.children.indexOf(node);
-    if (idx >= parent.children.length - 1) return;
-    parent.children[idx] = parent.children[idx + 1];
-    parent.children[idx + 1] = node;
+    const targetIdx = idx + delta;
+    if (targetIdx < 0 || targetIdx >= parent.children.length) return;
+    [parent.children[idx], parent.children[targetIdx]] = [parent.children[targetIdx], parent.children[idx]];
     postStructuralEdit();
     render();
   }
@@ -577,14 +560,14 @@
     if (!contextTarget) return;
     const node = contextTarget;
     hideContextMenu();
-    moveNodeUp(node);
+    moveNode(node, -1);
   });
 
   document.getElementById('ctx-move-down').addEventListener('click', () => {
     if (!contextTarget) return;
     const node = contextTarget;
     hideContextMenu();
-    moveNodeDown(node);
+    moveNode(node, 1);
   });
 
   document.getElementById('ctx-delete').addEventListener('click', () => {

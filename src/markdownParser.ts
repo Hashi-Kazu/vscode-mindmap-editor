@@ -6,6 +6,8 @@ function newId(): string {
   return `n${++_idCounter}`;
 }
 
+type Section = { level: number; text: string; bodyLines: string[] };
+
 export interface ParseResult {
   root: MindMapNode;
   frontmatter: string;  // raw frontmatter block including --- delimiters
@@ -31,7 +33,6 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   }
 
   // Split body into sections: each section = { level, text, bodyLines }
-  type Section = { level: number; text: string; bodyLines: string[] };
   const sections: Section[] = [];
   const preambleLines: string[] = [];
   let current: Section | null = null;
@@ -73,7 +74,7 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
     stack.push(node);
   }
 
-  applyCollapseState(root, collapsedPaths, '');
+  applyCollapsedPaths(root, collapsedPaths, '');
 
   return { root, frontmatter, preamble };
 }
@@ -102,13 +103,11 @@ function parseCollapsePaths(frontmatter: string): string[] {
     .filter(Boolean);
 }
 
-function applyCollapseState(node: MindMapNode, paths: string[], parentPath: string): void {
+export function applyCollapsedPaths(node: MindMapNode, paths: string[], parentPath: string): void {
   const myPath = parentPath ? `${parentPath}/${node.text}` : node.text;
-  if (paths.includes(myPath)) {
-    node.collapsed = true;
-  }
+  node.collapsed = paths.includes(myPath);
   for (const child of node.children) {
-    applyCollapseState(child, paths, myPath);
+    applyCollapsedPaths(child, paths, myPath);
   }
 }
 

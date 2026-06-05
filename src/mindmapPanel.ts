@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { parseMarkdown, extractCollapsedPaths } from './markdownParser';
+import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from './markdownParser';
 import { serializeToMarkdown, buildBodyMapById, applyBodiesById } from './markdownSerializer';
 import { MindMapNode } from './types';
 
@@ -255,18 +255,6 @@ export class MindMapPanel {
     this.panel.dispose();
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
-  }
-}
-
-function applyCollapsedPaths(
-  node: MindMapNode,
-  paths: string[],
-  parentPath: string
-): void {
-  const myPath = parentPath ? `${parentPath}/${node.text}` : node.text;
-  node.collapsed = paths.includes(myPath);
-  for (const child of node.children) {
-    applyCollapsedPaths(child, paths, myPath);
   }
 }
 

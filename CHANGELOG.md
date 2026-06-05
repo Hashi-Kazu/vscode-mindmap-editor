@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-06-05
+
+### Changed
+- Extracted `_applyFit` helper to remove duplicated fit-view calculation between `render()` and `fitView()`
+- Extracted `zoomBy(factor)` helper to unify toolbar buttons and keyboard shortcuts
+- Unified `moveNodeUp`/`moveNodeDown` into single `moveNode(node, delta)` function
+- Moved `Section` type to module level in `markdownParser.ts`
+- Unified `applyCollapseState` and `applyCollapsedPaths` into a single exported `applyCollapsedPaths` in `markdownParser.ts`
+
 ## [1.4.0] - 2026-06-04
 
 ### Changed
