@@ -52,17 +52,10 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
 
   const preamble = preambleLines.join('\n');
 
-  // Determine root
+  // Filename is always the root (level 0). All headings become children.
   const baseName = path.basename(filepath, path.extname(filepath));
-  let root: MindMapNode;
-  let startIdx = 0;
-
-  if (sections.length > 0 && sections[0].level === 1) {
-    root = makeNode(sections[0].text, 1, sections[0].bodyLines);
-    startIdx = 1;
-  } else {
-    root = makeNode(baseName, 0, []);
-  }
+  const root: MindMapNode = makeNode(baseName, 0, []);
+  const startIdx = 0;
 
   // Build tree using a stack
   const stack: MindMapNode[] = [root];
