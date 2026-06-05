@@ -56,12 +56,11 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   // Filename is always the root (level 0). All headings become children.
   const baseName = path.basename(filepath, path.extname(filepath));
   const root: MindMapNode = makeNode(baseName, 0, []);
-  const startIdx = 0;
 
   // Build tree using a stack
   const stack: MindMapNode[] = [root];
 
-  for (let i = startIdx; i < sections.length; i++) {
+  for (let i = 0; i < sections.length; i++) {
     const sec = sections[i];
     const node = makeNode(sec.text, sec.level, sec.bodyLines);
 

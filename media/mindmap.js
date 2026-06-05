@@ -32,7 +32,8 @@
   let transform = { x: 80, y: 0, scale: 1 };
   let contextTarget = null;
 
-  // Track visible node count to detect structural changes (add/delete)
+  // Tracks the visible node count from the last render; used to detect
+  // structural changes (add / delete / collapse) that require a re-fit.
   let _lastNodeCount = 0;
 
   // Drag state
@@ -105,6 +106,7 @@
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  /** Count all visible (non-collapsed) nodes in the subtree. */
   function countVisibleNodes(node) {
     if (node.collapsed) return 1;
     return 1 + node.children.reduce((s, c) => s + countVisibleNodes(c), 0);
@@ -130,9 +132,9 @@
     drawConnections(root, svgLayer);
     drawNodes(root, nodeLayer);
 
-    // Re-fit whenever the visible node count changes (node added/deleted/
-    // collapsed). This runs synchronously after layout() so _x/_y are always
-    // fresh — no rAF race conditions.
+    // Re-fit the view whenever the visible node count changes (node added,
+    // deleted, or collapsed/expanded). Positions are always fresh here because
+    // layout() runs synchronously above, so there are no rAF race conditions.
     const nodeCount = countVisibleNodes(root);
     if (nodeCount !== _lastNodeCount) {
       _lastNodeCount = nodeCount;
@@ -144,17 +146,17 @@
         transform.x = (rect.width - w * transform.scale) / 2 + (PAD - bounds.minX) * transform.scale;
         transform.y = (rect.height - h * transform.scale) / 2 + (PAD - bounds.minY) * transform.scale;
       } else if (rect.width === 0 || rect.height === 0) {
-        // Stage not ready yet. Set flag for ResizeObserver AND schedule a
-        // direct rAF retry in case ResizeObserver already fired before this
-        // flag was set (race condition on panel creation).
+        // Stage has no dimensions yet (first paint). Set the queued flag so the
+        // ResizeObserver can trigger a re-fit once the layout settles. Also
+        // schedule an rAF retry in case the ResizeObserver already fired before
+        // this flag was set (race condition on panel creation).
         _fitQueued = true;
-        const _savedCount = nodeCount;
         requestAnimationFrame(() => {
           if (!_fitQueued || !root) return;
           const r2 = stage.getBoundingClientRect();
           if (r2.width > 0 && r2.height > 0) {
             _fitQueued = false;
-            _lastNodeCount = _savedCount - 1; // force re-fit
+            _lastNodeCount = 0; // force re-fit on next render
             render();
           }
         });
@@ -294,21 +296,22 @@
     applyTransform();
   }
 
-  // ResizeObserver handles the initial-load case where stage has no
-  // dimensions when the first update arrives.
+  // True when a fit-view was requested while the stage had zero dimensions.
+  // Cleared by the ResizeObserver once the stage is laid out.
   let _fitQueued = false;
 
-  const _stageObserver = new ResizeObserver(() => {
+  // Re-render (and fit) once the stage gains real dimensions after the initial
+  // load, when the first 'update' message may arrive before CSS layout settles.
+  new ResizeObserver(() => {
     if (_fitQueued && root) {
       const rect = stage.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         _fitQueued = false;
-        _lastNodeCount = 0; // force re-fit on next render
+        _lastNodeCount = 0; // force re-fit on the upcoming render
         render();
       }
     }
-  });
-  _stageObserver.observe(stage);
+  }).observe(stage);
 
   stage.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -427,11 +430,6 @@
     node.collapsed = !node.collapsed;
     render();
     postCollapseState();
-  }
-
-  function setAllCollapsed(node, val) {
-    node.collapsed = val && node.children.length > 0;
-    node.children.forEach((c) => setAllCollapsed(c, val));
   }
 
   function postCollapseState() {
