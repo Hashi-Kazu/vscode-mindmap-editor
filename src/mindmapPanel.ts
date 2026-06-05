@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from './markdownParser';
-import { serializeToMarkdown, buildBodyMapById, applyBodiesById } from './markdownSerializer';
+import { serializeToMarkdown } from './markdownSerializer';
 import { MindMapNode } from './types';
 
 export class MindMapPanel {
@@ -119,10 +119,6 @@ export class MindMapPanel {
         this.isOperating = true;
         try {
           const webRoot = msg.root as MindMapNode;
-          if (this.lastRoot) {
-            const bodyMap = buildBodyMapById(this.lastRoot);
-            applyBodiesById(webRoot, bodyMap);
-          }
           this.lastRoot = webRoot;
           const collapsed = extractCollapsedPaths(webRoot);
           const newContent = serializeToMarkdown(
@@ -137,6 +133,28 @@ export class MindMapPanel {
         }
         // Re-sync: Markdown is authoritative — picks up any concurrent external edits.
         this.syncFromDocument(this.document);
+        break;
+      }
+
+      case 'editBody': {
+        this.isOperating = true;
+        try {
+          const { id, body } = msg as { type: string; id: string; body: string };
+          if (!this.lastRoot) break;
+          const node = findNodeById(this.lastRoot, id);
+          if (!node) break;
+          node.body = body;
+          const collapsed = extractCollapsedPaths(this.lastRoot);
+          const newContent = serializeToMarkdown(
+            this.lastRoot,
+            this.lastFrontmatter,
+            this.lastPreamble,
+            collapsed
+          );
+          await this.applyDocumentEdit(newContent);
+        } finally {
+          this.isOperating = false;
+        }
         break;
       }
 
@@ -242,7 +260,7 @@ export class MindMapPanel {
     <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
     <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
     <span class="sep"></span>
-    <span id="hint">矢印キー: 移動　Enter: 兄弟追加　F2/ダブルクリック: 編集　Tab: 子追加　Alt+↑↓: 上下入替　Del: 削除　Ctrl+Z: 元に戻す</span>
+    <span id="hint">矢印キー: 移動　Enter: 兄弟追加　F2/ダブルクリック: 編集　Tab: 子追加　Alt+↑↓: 上下入替　Del: 削除　右クリック: 本文項目追加/変換　Ctrl+Z: 元に戻す</span>
     <span id="save-indicator">✓ 保存済</span>
   </div>
   <div id="stage">
@@ -251,13 +269,7 @@ export class MindMapPanel {
     <div id="drop-indicator"></div>
   </div>
   <ul id="context-menu" class="hidden">
-    <li id="ctx-add-child">子ノードを追加</li>
-    <li id="ctx-add-sibling">兄弟ノードを追加</li>
-    <li class="divider"></li>
-    <li id="ctx-move-up">↑ 上へ移動</li>
-    <li id="ctx-move-down">↓ 下へ移動</li>
-    <li class="divider"></li>
-    <li id="ctx-delete" class="danger">削除</li>
+    <!-- dynamically built by mindmap.js -->
   </ul>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

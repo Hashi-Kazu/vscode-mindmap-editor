@@ -321,3 +321,66 @@ body {
   border-radius: 2px;
   box-shadow: 0 0 6px rgba(0, 122, 204, 0.55);
 }
+
+/* ── Body Item Nodes (in tree) ───────────────────────────────────────────── */
+
+.body-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 10px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.035);
+  border: 1px dashed var(--border);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+  overflow: hidden;
+}
+
+.body-node:hover {
+  background: var(--hover-bg);
+  border-color: rgba(255,255,255,0.18);
+}
+
+.body-node.selected {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+
+.body-node.checked {
+  opacity: 0.55;
+}
+
+.body-node-checkbox {
+  flex-shrink: 0;
+  cursor: pointer;
+  width: 13px;
+  height: 13px;
+}
+
+.body-node-bullet {
+  flex-shrink: 0;
+  opacity: 0.45;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.body-node-label {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  opacity: 0.88;
+}
+
+.body-node.checked .body-node-label {
+  text-decoration: line-through;
+}
+
+/* edit-input reused inside body-node */
+.body-node .edit-input {
+  font-size: 12px;
+}
