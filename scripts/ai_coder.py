@@ -131,7 +131,7 @@ def main() -> None:
         input=prompt,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=600,
     )
     if result.returncode != 0:
         print(f"ERROR: claude CLI failed (exit {result.returncode})", file=sys.stderr)
