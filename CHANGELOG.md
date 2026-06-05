@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.4] - 2026-06-05
+
+### Added
+- Auto inline editing immediately after adding a node (context menu and Tab key) — R-04-04
+- Keyboard navigation: arrow keys to move between nodes, Enter/F2 to edit, Tab to add child, Escape to deselect — US-12
+- Auto-scroll to bring keyboard-selected nodes into view — R-12-08
+
+### Fixed
+- Extension `update` messages no longer interrupt active inline editing
+
+## [1.4.3] - 2026-06-05
+
+### Changed
+- Increased node width (180→220px) and height (36→52px) to display approximately 2× characters
+- Label now wraps up to 2 lines (-webkit-line-clamp: 2) with ellipsis for overflow
+
 ## [1.4.1] - 2026-06-05
 
 ### Changed

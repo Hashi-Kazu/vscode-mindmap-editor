@@ -31,6 +31,8 @@
   let editingId = null;
   let transform = { x: 80, y: 0, scale: 1 };
   let contextTarget = null;
+  // ID of node that should auto-start editing after the next render (new node addition)
+  let _pendingEditId = null;
 
   // Tracks the visible node count from the last render; used to detect
   // structural changes (add / delete / collapse) that require a re-fit.
@@ -258,6 +260,12 @@
 
     parent.appendChild(div);
 
+    // Auto-start inline editing for newly added nodes
+    if (node.id === _pendingEditId) {
+      _pendingEditId = null;
+      requestAnimationFrame(() => beginEdit(node, div, label));
+    }
+
     if (!node.collapsed) {
       for (const child of node.children) {
         drawNodes(child, parent);
@@ -400,22 +408,69 @@
       vscode.postMessage({ type: 'save' });
       return;
     }
-    if (e.key === 'f' || e.key === 'F') { fitView(); return; }
-    if ((e.ctrlKey || e.metaKey) && e.key === '=') { zoomBy(1.25); }
-    if ((e.ctrlKey || e.metaKey) && e.key === '-') { zoomBy(1 / 1.25); }
-    if (e.key === 'Delete' && selectedId && !editingId) {
+    if ((e.ctrlKey || e.metaKey) && e.key === '=') { zoomBy(1.25); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') { zoomBy(1 / 1.25); return; }
+
+    // Shortcuts disabled while inline editing (the input handles its own keys)
+    if (editingId) return;
+
+    if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'f' || e.key === 'F')) {
+      fitView(); return;
+    }
+    if (e.key === 'Delete' && selectedId) {
       const node = findById(root, selectedId);
       if (node) deleteNode(node);
+      return;
     }
-    if (e.altKey && e.key === 'ArrowUp' && selectedId && !editingId) {
+    if (e.altKey && e.key === 'ArrowUp' && selectedId) {
       e.preventDefault();
       const node = findById(root, selectedId);
       if (node) moveNode(node, -1);
+      return;
     }
-    if (e.altKey && e.key === 'ArrowDown' && selectedId && !editingId) {
+    if (e.altKey && e.key === 'ArrowDown' && selectedId) {
       e.preventDefault();
       const node = findById(root, selectedId);
       if (node) moveNode(node, 1);
+      return;
+    }
+    // Enter / F2: start editing selected node
+    if ((e.key === 'Enter' || e.key === 'F2') && selectedId) {
+      e.preventDefault();
+      const node = findById(root, selectedId);
+      if (node) {
+        const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
+        const lbl = nodeEl && nodeEl.querySelector('.label');
+        if (lbl) beginEdit(node, nodeEl, lbl);
+      }
+      return;
+    }
+    // Tab: add child to selected node and start editing immediately
+    if (e.key === 'Tab' && !e.shiftKey && selectedId) {
+      e.preventDefault();
+      const node = findById(root, selectedId);
+      if (!node || node.level >= 6) return;
+      const newNode = makeNode('新しいノード', node.level + 1);
+      node.children.push(newNode);
+      node.collapsed = false;
+      selectedId = newNode.id;
+      _pendingEditId = newNode.id;
+      postStructuralEdit();
+      render();
+      return;
+    }
+    // Arrow key navigation (no modifier)
+    if (!e.altKey && !e.ctrlKey && !e.metaKey) {
+      if (['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(e.key)) {
+        e.preventDefault();
+        navigateByKey(e.key);
+        return;
+      }
+      if (e.key === 'Escape' && selectedId) {
+        selectedId = null;
+        document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
+        return;
+      }
     }
   });
 
@@ -538,6 +593,7 @@
     contextTarget.children.push(newNode);
     contextTarget.collapsed = false;
     selectedId = newNode.id;
+    _pendingEditId = newNode.id;
     hideContextMenu();
     postStructuralEdit();
     render();
@@ -551,6 +607,7 @@
     const idx = parent.children.indexOf(contextTarget);
     parent.children.splice(idx + 1, 0, newNode);
     selectedId = newNode.id;
+    _pendingEditId = newNode.id;
     hideContextMenu();
     postStructuralEdit();
     render();
@@ -796,11 +853,84 @@
     return null;
   }
 
+  // ─── Keyboard Navigation ──────────────────────────────────────────────────
+
+  function getVisibleNodes() {
+    const result = [];
+    function collect(node) {
+      result.push(node);
+      if (!node.collapsed) node.children.forEach(collect);
+    }
+    if (root) collect(root);
+    return result;
+  }
+
+  function scrollNodeIntoView(node) {
+    if (node._x === undefined) return;
+    const rect = stage.getBoundingClientRect();
+    const margin = 60;
+    const sx = node._x * transform.scale + transform.x;
+    const sy = node._y * transform.scale + transform.y;
+    const sw = NODE_W * transform.scale;
+    const sh = NODE_H * transform.scale;
+    let changed = false;
+    if (sx < margin)                       { transform.x += margin - sx;                   changed = true; }
+    else if (sx + sw > rect.width - margin){ transform.x -= sx + sw - (rect.width - margin); changed = true; }
+    if (sy < margin)                       { transform.y += margin - sy;                    changed = true; }
+    else if (sy + sh > rect.height - margin){ transform.y -= sy + sh - (rect.height - margin); changed = true; }
+    if (changed) applyTransform();
+  }
+
+  function selectNode(node) {
+    if (!node) return;
+    selectedId = node.id;
+    document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
+    const el = document.querySelector(`.node[data-id="${node.id}"]`);
+    if (el) el.classList.add('selected');
+    scrollNodeIntoView(node);
+  }
+
+  function navigateByKey(key) {
+    if (!root) return;
+    const nodes = getVisibleNodes();
+    if (!nodes.length) return;
+    const currentNode = selectedId ? findById(root, selectedId) : null;
+    if (!currentNode) { selectNode(nodes[0]); return; }
+    const idx = nodes.indexOf(currentNode);
+
+    if (key === 'ArrowDown') {
+      if (idx < nodes.length - 1) selectNode(nodes[idx + 1]);
+    } else if (key === 'ArrowUp') {
+      if (idx > 0) selectNode(nodes[idx - 1]);
+    } else if (key === 'ArrowRight') {
+      if (currentNode.children.length) {
+        if (currentNode.collapsed) {
+          currentNode.collapsed = false;
+          render();
+          postCollapseState();
+        }
+        selectNode(currentNode.children[0]);
+      }
+    } else if (key === 'ArrowLeft') {
+      if (currentNode.children.length && !currentNode.collapsed) {
+        currentNode.collapsed = true;
+        render();
+        postCollapseState();
+        selectNode(currentNode);
+      } else {
+        const parent = findParent(root, currentNode);
+        if (parent) selectNode(parent);
+      }
+    }
+  }
+
   // ─── Message from Extension ───────────────────────────────────────────────
 
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'update') {
+      // Don't interrupt inline editing — the next update after renameNode will refresh state.
+      if (editingId) return;
       root = msg.root;
       render();
     }

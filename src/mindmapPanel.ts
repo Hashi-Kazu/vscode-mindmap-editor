@@ -240,7 +240,7 @@ export class MindMapPanel {
     <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
     <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
     <span class="sep"></span>
-    <span id="hint">ダブルクリック: 編集　右クリック: ノード操作　ドラッグ: 移動　Alt+↑↓: 上下入替　▶/▼: 選択ノード展開/折畳</span>
+    <span id="hint">矢印キー: 移動　Enter/F2: 編集　Tab: 子ノード追加　Alt+↑↓: 上下入替　Del: 削除　ダブルクリック: 編集　右クリック: ノード操作</span>
   </div>
   <div id="stage">
     <svg id="svg-layer"></svg>
