@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.0] - 2026-06-05
+
+### Added
+- Body list items (`- [ ] item`, `- [x] item`, `- item`) are now rendered as **body nodes directly in the mindmap tree**, positioned to the right of the parent heading node — US-13
+- Body node design: dashed border, semi-transparent background, 12 px font, 30 px height — clearly distinct from heading nodes
+- Connections to body nodes use dashed gray lines; heading-to-heading connections unchanged
+- Checkbox body nodes: click toggles `[ ]` ↔ `[x]` and saves to Markdown immediately; checked items show strikethrough text and reduced opacity — R-13-03
+- Bullet body nodes (`- item`): displayed with a dash (–) indicator — R-13-04
+- Body node inline editing: double-click or F2 opens text-only input; `- [ ] ` prefix is added automatically — R-13-05
+- Delete key removes the selected body item — R-13-06
+- Collapse toggle (▼/▶) appears on heading nodes that have body items — R-13-07
+- Non-list body text (paragraphs, code blocks) continues to show as a dot indicator on the heading node — R-13-08
+- Context menu "本文項目を追加" on heading nodes: adds a new `- [ ] ` line and auto-starts inline editing — R-13-05
+- Body node right-click menu: "↑ ノード化 (→ 見出し)" and "本文行を削除" — R-14-02
+- Context menu is now built dynamically with event delegation (no static HTML items)
+
+### Changed
+- Bottom body panel removed; body content is integrated into the tree view — US-13 redesign
+- `Ctrl+B` shortcut removed (body editing is now inline in the tree)
+- `structuralEdit` handler no longer calls `buildBodyMapById`/`applyBodiesById`; eliminates incorrect body restoration on undo and conversion
+
+## [1.6.0] - 2026-06-05 *(superseded by 1.7.0)*
+
+### Added
+- Body panel (bottom, 180 px): selected node's body displayed with checkbox rendering, inline textarea editing — US-13 (initial implementation, replaced in 1.7.0)
+- `editBody` webview → extension message: updates a node's body without a full tree rebuild
+
 ## [1.5.0] - 2026-06-05
 
 ### Added
