@@ -7,9 +7,9 @@
 
   // ─── Constants ────────────────────────────────────────────────────────────
 
-  const NODE_W = 180;
-  const NODE_H = 36;
-  const H_SPACE = 240;  // horizontal distance between levels
+  const NODE_W = 220;
+  const NODE_H = 52;
+  const H_SPACE = 280;  // horizontal distance between levels
   const V_GAP = 16;     // vertical gap between siblings
   const PAD = 60;       // canvas padding
 

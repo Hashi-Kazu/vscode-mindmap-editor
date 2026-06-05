@@ -121,7 +121,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 10px 0 8px;
+  padding: 6px 10px 6px 8px;
   border-radius: 6px;
   background: var(--node-bg);
   border: 1.5px solid var(--node-color, var(--border));
@@ -129,7 +129,6 @@ body {
   user-select: none;
   transition: background 0.1s, box-shadow 0.1s;
   overflow: hidden;
-  white-space: nowrap;
 }
 
 .node:hover {
@@ -180,8 +179,12 @@ body {
 .label {
   flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
   pointer-events: none;
 }
 
