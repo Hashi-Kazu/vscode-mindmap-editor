@@ -199,6 +199,8 @@ export class MindMapPanel {
         );
         edit.replace(this.document.uri, fullRange, newContent);
         await vscode.workspace.applyEdit(edit);
+        await this.document.save();
+        this.panel.webview.postMessage({ type: 'saved' });
       } finally {
         this.applyingEdit = false;
       }
@@ -240,7 +242,8 @@ export class MindMapPanel {
     <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
     <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
     <span class="sep"></span>
-    <span id="hint">矢印キー: 移動　Enter/F2: 編集　Tab: 子ノード追加　Alt+↑↓: 上下入替　Del: 削除　ダブルクリック: 編集　右クリック: ノード操作</span>
+    <span id="hint">矢印キー: 移動　Enter: 兄弟追加　F2/ダブルクリック: 編集　Tab: 子追加　Alt+↑↓: 上下入替　Del: 削除　Ctrl+Z: 元に戻す</span>
+    <span id="save-indicator">✓ 保存済</span>
   </div>
   <div id="stage">
     <svg id="svg-layer"></svg>

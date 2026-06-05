@@ -121,59 +121,64 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 10px 6px 8px;
-  border-radius: 6px;
+  padding: 0 10px 0 14px;
+  border-radius: 5px;
   background: var(--node-bg);
-  border: 1.5px solid var(--node-color, var(--border));
+  border: none;
   cursor: pointer;
   user-select: none;
-  transition: background 0.1s, box-shadow 0.1s;
+  transition: background 0.12s, box-shadow 0.12s;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.28);
+}
+
+/* Left accent bar */
+.node::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 5px 0 0 5px;
+  background: var(--node-color, var(--border));
 }
 
 .node:hover {
   background: var(--hover-bg);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.36);
 }
 
 .node.selected {
-  box-shadow: 0 0 0 2px var(--node-color, var(--focus));
+  box-shadow: 0 0 0 1.5px var(--node-color, var(--focus)), 0 2px 6px rgba(0,0,0,0.36);
 }
 
 .node.drop-over {
-  background: rgba(0, 122, 204, 0.2);
-  border-color: var(--focus);
+  background: rgba(0, 122, 204, 0.18);
+  box-shadow: 0 0 0 1.5px var(--focus);
 }
 
-/* Root / level colours */
+/* Root / H1 — slightly bolder text only */
 .node[data-level="0"],
 .node[data-level="1"] {
   font-weight: 600;
-  font-size: 14px;
 }
-
-.node[data-level="0"] { background: rgba(86,156,214,0.12); }
-.node[data-level="1"] { background: rgba(86,156,214,0.08); }
-.node[data-level="2"] { background: rgba(78,201,176,0.08); }
-.node[data-level="3"] { background: rgba(220,220,170,0.08); }
-.node[data-level="4"] { background: rgba(206,145,120,0.08); }
-.node[data-level="5"] { background: rgba(156,220,254,0.08); }
-.node[data-level="6"] { background: rgba(197,134,192,0.08); }
 
 /* Collapse toggle */
 .toggle-btn {
   background: transparent;
   border: none;
-  color: inherit;
+  color: var(--node-color, var(--fg));
   cursor: pointer;
-  font-size: 9px;
+  font-size: 8px;
   padding: 0 2px;
-  opacity: 0.5;
+  opacity: 0.45;
   flex-shrink: 0;
   line-height: 1;
 }
 
 .toggle-btn:hover {
-  opacity: 1;
+  opacity: 0.9;
 }
 
 .label {
@@ -271,6 +276,34 @@ body {
   opacity: 0.35;
   pointer-events: none;
   cursor: default;
+}
+
+/* ── Save indicator ──────────────────────────────────────────────────────── */
+
+#save-indicator {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--vscode-gitDecoration-addedResourceForeground, #4ec994);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+#save-indicator.visible {
+  opacity: 0.85;
+}
+
+/* ── Body dot ────────────────────────────────────────────────────────────── */
+
+.body-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--node-color, var(--border));
+  opacity: 0.55;
+  flex-shrink: 0;
+  cursor: help;
 }
 
 /* ── Drop indicator ────────────────────────────────────────────────────── */

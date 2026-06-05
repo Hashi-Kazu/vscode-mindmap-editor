@@ -7,11 +7,12 @@
 
   // ─── Constants ────────────────────────────────────────────────────────────
 
-  const NODE_W = 220;
-  const NODE_H = 52;
+  const NODE_W = 260;
+  const NODE_H = 46;
   const H_SPACE = 280;  // horizontal distance between levels
   const V_GAP = 16;     // vertical gap between siblings
   const PAD = 60;       // canvas padding
+  const MAX_UNDO = 50;
 
   // Level colours (border + connection)
   const LEVEL_COLORS = [
@@ -43,6 +44,9 @@
 
   // Pan state
   let panState = null; // { startMouseX, startMouseY, startTx, startTy }
+
+  // Undo stack — stores pre-change tree snapshots
+  let undoStack = [];
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
 
@@ -225,10 +229,22 @@
     label.textContent = node.text;
     div.appendChild(label);
 
-    // Tooltip: show full text only when text is truncated by ellipsis
+    // Body indicator dot — shown when the node has body text in Markdown
+    if (node.body && node.body.trim()) {
+      const dot = document.createElement('span');
+      dot.className = 'body-dot';
+      dot.title = node.body.trim();
+      div.appendChild(dot);
+    }
+
+    // Tooltip: body text takes priority; otherwise show label when truncated
     div.addEventListener('mouseenter', () => {
-      const lbl = div.querySelector('.label');
-      div.title = (lbl && lbl.scrollWidth > lbl.clientWidth) ? node.text : '';
+      if (node.body && node.body.trim()) {
+        div.title = node.body.trim();
+      } else {
+        const lbl = div.querySelector('.label');
+        div.title = (lbl && lbl.scrollWidth > lbl.clientWidth) ? node.text : '';
+      }
     });
 
     // Events
@@ -391,6 +407,7 @@
     if (!selectedId || !root) return;
     const node = findById(root, selectedId);
     if (!node || !node.children.length || !node.collapsed) return;
+    pushUndo();
     node.collapsed = false;
     render();
     postCollapseState();
@@ -399,12 +416,19 @@
     if (!selectedId || !root) return;
     const node = findById(root, selectedId);
     if (!node || !node.children.length || node.collapsed) return;
+    pushUndo();
     node.collapsed = true;
     render();
     postCollapseState();
   });
 
   document.addEventListener('keydown', (e) => {
+    // Ctrl+Z / Cmd+Z — undo last operation
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      performUndo();
+      return;
+    }
     // Ctrl+S / Cmd+S — save the backing Markdown file
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
@@ -437,8 +461,8 @@
       if (node) moveNode(node, 1);
       return;
     }
-    // Enter / F2: start editing selected node
-    if ((e.key === 'Enter' || e.key === 'F2') && selectedId) {
+    // F2: start editing selected node
+    if (e.key === 'F2' && selectedId) {
       e.preventDefault();
       const node = findById(root, selectedId);
       if (node) {
@@ -448,12 +472,36 @@
       }
       return;
     }
+    // Enter: add sibling below selected node (root node → start editing)
+    if (e.key === 'Enter' && selectedId) {
+      e.preventDefault();
+      const node = findById(root, selectedId);
+      if (!node) return;
+      const parent = findParent(root, node);
+      if (!parent) {
+        // Root has no parent — fall back to editing
+        const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
+        const lbl = nodeEl && nodeEl.querySelector('.label');
+        if (lbl) beginEdit(node, nodeEl, lbl);
+        return;
+      }
+      const newNode = makeNode('新しいノード', node.level);
+      const idx = parent.children.indexOf(node);
+      pushUndo();
+      parent.children.splice(idx + 1, 0, newNode);
+      selectedId = newNode.id;
+      _pendingEditId = newNode.id;
+      postStructuralEdit();
+      render();
+      return;
+    }
     // Tab: add child to selected node and start editing immediately
     if (e.key === 'Tab' && !e.shiftKey && selectedId) {
       e.preventDefault();
       const node = findById(root, selectedId);
       if (!node || node.level >= 6) return;
       const newNode = makeNode('新しいノード', node.level + 1);
+      pushUndo();
       node.children.push(newNode);
       node.collapsed = false;
       selectedId = newNode.id;
@@ -480,6 +528,7 @@
   // ─── Node Operations ──────────────────────────────────────────────────────
 
   function toggleCollapse(node) {
+    pushUndo();
     node.collapsed = !node.collapsed;
     render();
     postCollapseState();
@@ -512,6 +561,7 @@
     const idx = parent.children.indexOf(node);
     const targetIdx = idx + delta;
     if (targetIdx < 0 || targetIdx >= parent.children.length) return;
+    pushUndo();
     [parent.children[idx], parent.children[targetIdx]] = [parent.children[targetIdx], parent.children[idx]];
     postStructuralEdit();
     render();
@@ -538,6 +588,7 @@
       editingId = null;
       div.classList.remove('editing');
       if (trimmed && trimmed !== node.text) {
+        pushUndo();
         node.text = trimmed;
         vscode.postMessage({ type: 'renameNode', id: node.id, newText: trimmed });
       }
@@ -593,6 +644,7 @@
     if (!contextTarget) return;
     if (contextTarget.level >= 6) return; // H6 cannot have children
     const newNode = makeNode('新しいノード', contextTarget.level + 1);
+    pushUndo();
     contextTarget.children.push(newNode);
     contextTarget.collapsed = false;
     selectedId = newNode.id;
@@ -608,6 +660,7 @@
     if (!parent) { hideContextMenu(); return; }
     const newNode = makeNode('新しいノード', contextTarget.level);
     const idx = parent.children.indexOf(contextTarget);
+    pushUndo();
     parent.children.splice(idx + 1, 0, newNode);
     selectedId = newNode.id;
     _pendingEditId = newNode.id;
@@ -647,6 +700,7 @@
 
     const parent = findParent(root, node);
     if (!parent) return;
+    pushUndo();
     parent.children = parent.children.filter((c) => c.id !== node.id);
 
     if (selectedId === node.id) selectedId = null;
@@ -793,6 +847,7 @@
     const sourceParent = findParent(root, draggedNode);
     if (!sourceParent) return;
 
+    pushUndo();
     // Remove from current parent
     sourceParent.children = sourceParent.children.filter((c) => c.id !== draggedNode.id);
 
@@ -856,6 +911,33 @@
     return null;
   }
 
+  // ─── Undo ─────────────────────────────────────────────────────────────────
+
+  function cloneForUndo(node) {
+    return {
+      id: node.id,
+      text: node.text,
+      level: node.level,
+      collapsed: node.collapsed,
+      body: node.body,
+      children: node.children.map(cloneForUndo),
+    };
+  }
+
+  function pushUndo() {
+    if (!root) return;
+    undoStack.push(cloneForUndo(root));
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+  }
+
+  function performUndo() {
+    if (!undoStack.length) return;
+    root = undoStack.pop();
+    selectedId = null;
+    render();
+    vscode.postMessage({ type: 'structuralEdit', root });
+  }
+
   // ─── Keyboard Navigation ──────────────────────────────────────────────────
 
   function getVisibleNodes() {
@@ -908,6 +990,7 @@
     } else if (key === 'ArrowRight') {
       if (currentNode.children.length) {
         if (currentNode.collapsed) {
+          pushUndo();
           currentNode.collapsed = false;
           render();
           postCollapseState();
@@ -916,6 +999,7 @@
       }
     } else if (key === 'ArrowLeft') {
       if (currentNode.children.length && !currentNode.collapsed) {
+        pushUndo();
         currentNode.collapsed = true;
         render();
         postCollapseState();
@@ -937,7 +1021,18 @@
       root = msg.root;
       render();
     }
+    if (msg.type === 'saved') {
+      showSaveIndicator();
+    }
   });
+
+  function showSaveIndicator() {
+    const el = document.getElementById('save-indicator');
+    if (!el) return;
+    el.classList.add('visible');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('visible'), 1800);
+  }
 
   // Tell the extension the webview is ready to receive the initial tree.
   // This is more reliable than a fixed setTimeout in the extension.
