@@ -23,6 +23,9 @@ export class MindMapPanel {
   private isOperating = false;
   // Set to true once the webview sends its 'ready' signal
   private webviewReady = false;
+  // Serializes document writes — prevents concurrent applyDocumentEdit calls from
+  // computing stale fullRange values, which would leave tail content and duplicate nodes.
+  private _editQueue: Promise<void> = Promise.resolve();
 
   public static createOrShow(
     extensionUri: vscode.Uri,
@@ -181,21 +184,29 @@ export class MindMapPanel {
     }
   }
 
-  private async applyDocumentEdit(newContent: string): Promise<void> {
-    this.applyingEdit = true;
-    try {
-      const edit = new vscode.WorkspaceEdit();
-      const fullRange = new vscode.Range(
-        this.document.positionAt(0),
-        this.document.positionAt(this.document.getText().length)
-      );
-      edit.replace(this.document.uri, fullRange, newContent);
-      await vscode.workspace.applyEdit(edit);
-      // Do NOT re-parse here — each message handler updates lastRoot in-place
-      // so IDs remain consistent across multiple webview round-trips.
-    } finally {
-      this.applyingEdit = false;
-    }
+  private applyDocumentEdit(newContent: string): Promise<void> {
+    // Chain onto the queue so writes execute one at a time. Each write
+    // re-computes fullRange from the live document, preventing the stale-range
+    // bug where a concurrent write with the pre-edit length would leave tail
+    // content behind and duplicate nodes in the parsed tree.
+    const run = async (): Promise<void> => {
+      this.applyingEdit = true;
+      try {
+        const edit = new vscode.WorkspaceEdit();
+        const fullRange = new vscode.Range(
+          this.document.positionAt(0),
+          this.document.positionAt(this.document.getText().length)
+        );
+        edit.replace(this.document.uri, fullRange, newContent);
+        await vscode.workspace.applyEdit(edit);
+      } finally {
+        this.applyingEdit = false;
+      }
+    };
+    const next = this._editQueue.then(run, run);
+    // Keep the queue alive even if a write fails.
+    this._editQueue = next.then(() => {}, () => {});
+    return next;
   }
 
   private buildHtml(): string {
