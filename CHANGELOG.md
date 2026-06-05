@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.5] - 2026-06-05
+
+### Fixed
+- View position and zoom are now preserved during collapse/expand and node move operations
+- Auto-fit now only triggers on initial load; subsequent operations no longer reset the viewport
+
 ## [1.4.4] - 2026-06-05
 
 ### Added

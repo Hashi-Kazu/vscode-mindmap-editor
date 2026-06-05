@@ -134,30 +134,33 @@
     drawConnections(root, svgLayer);
     drawNodes(root, nodeLayer);
 
-    // Re-fit the view whenever the visible node count changes (node added,
-    // deleted, or collapsed/expanded). Positions are always fresh here because
-    // layout() runs synchronously above, so there are no rAF race conditions.
+    // Auto-fit only on the initial load (when transitioning from 0 visible nodes).
+    // Collapse/expand, add, delete, and move operations preserve the current
+    // pan/zoom state so the user's view position is never reset unexpectedly.
     const nodeCount = countVisibleNodes(root);
     if (nodeCount !== _lastNodeCount) {
+      const isInitialLoad = _lastNodeCount === 0;
       _lastNodeCount = nodeCount;
-      const rect = stage.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0 && isFinite(bounds.minX)) {
-        _applyFit(rect, bounds);
-      } else if (rect.width === 0 || rect.height === 0) {
-        // Stage has no dimensions yet (first paint). Set the queued flag so the
-        // ResizeObserver can trigger a re-fit once the layout settles. Also
-        // schedule an rAF retry in case the ResizeObserver already fired before
-        // this flag was set (race condition on panel creation).
-        _fitQueued = true;
-        requestAnimationFrame(() => {
-          if (!_fitQueued || !root) return;
-          const r2 = stage.getBoundingClientRect();
-          if (r2.width > 0 && r2.height > 0) {
-            _fitQueued = false;
-            _lastNodeCount = 0; // force re-fit on next render
-            render();
-          }
-        });
+      if (isInitialLoad) {
+        const rect = stage.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && isFinite(bounds.minX)) {
+          _applyFit(rect, bounds);
+        } else if (rect.width === 0 || rect.height === 0) {
+          // Stage has no dimensions yet (first paint). Set the queued flag so the
+          // ResizeObserver can trigger a re-fit once the layout settles. Also
+          // schedule an rAF retry in case the ResizeObserver already fired before
+          // this flag was set (race condition on panel creation).
+          _fitQueued = true;
+          requestAnimationFrame(() => {
+            if (!_fitQueued || !root) return;
+            const r2 = stage.getBoundingClientRect();
+            if (r2.width > 0 && r2.height > 0) {
+              _fitQueued = false;
+              _lastNodeCount = 0; // force re-fit on next render
+              render();
+            }
+          });
+        }
       }
     }
 
