@@ -19,10 +19,11 @@ REPO_ROOT = Path(__file__).parent.parent
 
 INCLUDE_EXTENSIONS = {
     ".ts", ".js", ".css", ".html",
-    ".json", ".md", ".yml", ".yaml", ".py",
 }
-EXCLUDE_DIRS = {"node_modules", ".git", "dist", ".vscode"}
+EXCLUDE_DIRS = {"node_modules", ".git", "dist", ".vscode", "scripts"}
 EXCLUDE_FILES = {"package-lock.json"}
+MAX_FILE_CHARS = 8000   # 1ファイルあたりの文字数上限
+MAX_TOTAL_CHARS = 80000  # プロンプト全体のソースコード部分の上限
 
 
 def collect_source_files() -> dict[str, str]:
@@ -39,10 +40,21 @@ def collect_source_files() -> dict[str, str]:
             continue
         rel = path.relative_to(REPO_ROOT).as_posix()
         try:
-            files[rel] = path.read_text(encoding="utf-8", errors="replace")
+            content = path.read_text(encoding="utf-8", errors="replace")
+            if len(content) > MAX_FILE_CHARS:
+                content = content[:MAX_FILE_CHARS] + "\n... (truncated)"
+            files[rel] = content
         except Exception:
             pass
-    return files
+    # 合計サイズが上限を超えたらここで打ち切る
+    total = 0
+    trimmed: dict[str, str] = {}
+    for k, v in files.items():
+        if total + len(v) > MAX_TOTAL_CHARS:
+            break
+        trimmed[k] = v
+        total += len(v)
+    return trimmed
 
 
 def build_prompt(issue_number: str, issue_title: str, issue_body: str,
