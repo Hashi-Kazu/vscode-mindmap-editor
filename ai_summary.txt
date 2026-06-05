@@ -1,1 +1,1 @@
-REQUIREMENTS.md のメッセージプロトコル表に実装済みの `ready` / `save` メッセージが欠落していたため追加し、バージョンを 1.4.0 に更新。合わせて src/types.ts の WebviewMessage 型にも同じ 2 種を追加して型定義を実装と同期させた。
+Added the MIT license badge to the top of README.md as requested in issue #5
