@@ -239,12 +239,16 @@
   function fitView() {
     if (!root) return;
     const rect = stage.getBoundingClientRect();
-    // If the stage hasn't been laid out yet (dimensions are 0), retry next frame.
     if (rect.width === 0 || rect.height === 0) {
-      requestAnimationFrame(() => requestAnimationFrame(fitView));
+      _fitQueued = true;
       return;
     }
+    // Ensure layout positions are computed (guards against calling fitView
+    // on a freshly-received root before render() has run).
+    if (root._x === undefined) layout();
     const b = getBounds(root);
+    // Guard against NaN/Infinity from undefined positions.
+    if (!isFinite(b.minX) || !isFinite(b.minY) || !isFinite(b.maxX) || !isFinite(b.maxY)) return;
     const w = b.maxX - b.minX + PAD * 2;
     const h = b.maxY - b.minY + PAD * 2;
     const scaleX = rect.width / w;
@@ -253,6 +257,35 @@
     transform.x = (rect.width - w * transform.scale) / 2 + (PAD - b.minX) * transform.scale;
     transform.y = (rect.height - h * transform.scale) / 2 + (PAD - b.minY) * transform.scale;
     applyTransform();
+  }
+
+  // ─── Reliable fitView scheduling ─────────────────────────────────────────
+  // Uses ResizeObserver as fallback when stage has no dimensions yet
+  // (e.g. panel opened while hidden).
+
+  let _fitQueued = false;
+
+  const _stageObserver = new ResizeObserver(() => {
+    if (_fitQueued && root) {
+      const rect = stage.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        _fitQueued = false;
+        fitView();
+      }
+    }
+  });
+  _stageObserver.observe(stage);
+
+  function scheduleFitView() {
+    requestAnimationFrame(() => {
+      if (!root) return;
+      const rect = stage.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        fitView();
+      } else {
+        _fitQueued = true; // ResizeObserver will fire fitView once stage is sized
+      }
+    });
   }
 
   stage.addEventListener('mousedown', (e) => {
@@ -322,19 +355,19 @@
   document.getElementById('btn-expand-all').addEventListener('click', () => {
     if (!selectedId || !root) return;
     const node = findById(root, selectedId);
-    // Valid only when the selected node has children and is currently collapsed
     if (!node || !node.children.length || !node.collapsed) return;
     node.collapsed = false;
     render();
+    scheduleFitView();
     postCollapseState();
   });
   document.getElementById('btn-collapse-all').addEventListener('click', () => {
     if (!selectedId || !root) return;
     const node = findById(root, selectedId);
-    // Valid only when the selected node has children and is currently expanded
     if (!node || !node.children.length || node.collapsed) return;
     node.collapsed = true;
     render();
+    scheduleFitView();
     postCollapseState();
   });
 
@@ -373,6 +406,7 @@
   function toggleCollapse(node) {
     node.collapsed = !node.collapsed;
     render();
+    scheduleFitView();
     postCollapseState();
   }
 
@@ -411,6 +445,7 @@
     parent.children[idx - 1] = node;
     postStructuralEdit();
     render();
+    scheduleFitView();
   }
 
   function moveNodeDown(node) {
@@ -423,6 +458,7 @@
     parent.children[idx + 1] = node;
     postStructuralEdit();
     render();
+    scheduleFitView();
   }
 
   // ─── Inline Editing ───────────────────────────────────────────────────────
@@ -450,6 +486,7 @@
         vscode.postMessage({ type: 'renameNode', id: node.id, newText: trimmed });
       }
       render();
+      scheduleFitView();
     };
 
     const cancel = () => {
@@ -507,6 +544,7 @@
     hideContextMenu();
     postStructuralEdit();
     render();
+    scheduleFitView();
   });
 
   document.getElementById('ctx-add-sibling').addEventListener('click', () => {
@@ -520,6 +558,7 @@
     hideContextMenu();
     postStructuralEdit();
     render();
+    scheduleFitView();
   });
 
   document.getElementById('ctx-move-up').addEventListener('click', () => {
@@ -558,6 +597,7 @@
     if (selectedId === node.id) selectedId = null;
     postStructuralEdit();
     render();
+    scheduleFitView();
   }
 
   // ─── Drag & Drop ──────────────────────────────────────────────────────────
@@ -605,6 +645,7 @@
       performDrop(ds.node, result.targetNode, result.position);
     }
     render();
+    scheduleFitView();
   }
 
   /** Show a horizontal line for before/after, highlight for inside, blocked cursor for H6 */
@@ -768,19 +809,8 @@
     const msg = event.data;
     if (msg.type === 'update') {
       root = msg.root;
-      // Reset transform so nodes are never stranded off-screen before fitView runs.
-      transform = { x: 80, y: 0, scale: 1 };
       render();
-      // Fit view after paint; retry until stage has real dimensions.
-      const tryFit = () => {
-        const rect = stage.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          fitView();
-        } else {
-          requestAnimationFrame(tryFit);
-        }
-      };
-      requestAnimationFrame(tryFit);
+      scheduleFitView();
     }
   });
 
