@@ -14,7 +14,8 @@ export interface ParseResult {
 
 export function parseMarkdown(content: string, filepath: string): ParseResult {
   _idCounter = 0;
-  const lines = content.split('\n');
+  // Normalize CRLF → LF so \r does not break heading regex on Windows files.
+  const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   let bodyStart = 0;
   let frontmatter = '';
   let collapsedPaths: string[] = [];
