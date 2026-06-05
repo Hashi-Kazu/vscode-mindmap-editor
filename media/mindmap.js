@@ -768,10 +768,19 @@
     const msg = event.data;
     if (msg.type === 'update') {
       root = msg.root;
+      // Reset transform so nodes are never stranded off-screen before fitView runs.
+      transform = { x: 80, y: 0, scale: 1 };
       render();
-      // Always fit the view after an update so newly added or
-      // off-screen nodes are always visible.
-      requestAnimationFrame(() => requestAnimationFrame(fitView));
+      // Fit view after paint; retry until stage has real dimensions.
+      const tryFit = () => {
+        const rect = stage.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          fitView();
+        } else {
+          requestAnimationFrame(tryFit);
+        }
+      };
+      requestAnimationFrame(tryFit);
     }
   });
 
