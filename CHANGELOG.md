@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-06-05
+
+### Added
+- Auto-save on every Markdown reflect: `document.save()` is called after each `applyDocumentEdit` — R-01-07
+- Save indicator: "✓ 保存済" fades in/out in the toolbar for 1.8 s after each save — R-09-03
+- Webview-side Undo stack (max 50 entries, `Ctrl+Z`): covers structural edits, renames, collapse changes, drag-and-drop — US-10 / R-12-10
+- `Enter` key adds a sibling node below the selected node and starts inline editing immediately — R-12-04
+- Body-text indicator dot on nodes that have non-heading body content in Markdown; hover shows body as tooltip — R-01-08
+
+### Changed
+- Node width 220 → 260 px, height 52 → 46 px
+- Node design: removed per-level background tints and full border; replaced with a 3 px left accent bar (`::before`) per level colour
+- `Enter` no longer starts inline editing (use `F2` or double-click instead) — R-12-04b
+- `saved` message added to extension → webview protocol to trigger the save indicator
+
 ## [1.4.5] - 2026-06-05
 
 ### Fixed
