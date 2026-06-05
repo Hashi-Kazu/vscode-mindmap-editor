@@ -139,11 +139,15 @@ def main() -> None:
 
     print("Sending request to Claude via Claude Code CLI...")
     result = subprocess.run(
-        ["claude", "--print", "--model", MODEL, "--system-prompt", system_prompt],
-        input=prompt,
+        [
+            "claude", "--print", "--dangerously-skip-permissions",
+            "--model", MODEL,
+            "--system-prompt", system_prompt,
+            prompt,
+        ],
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=300,
     )
     if result.returncode != 0:
         print(f"ERROR: claude CLI failed (exit {result.returncode})", file=sys.stderr)
