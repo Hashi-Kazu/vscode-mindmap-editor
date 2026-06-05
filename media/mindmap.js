@@ -42,6 +42,7 @@
 
   let _lastNodeCount = 0;
   let dragState = null;
+  let bodyDragState = null;
   let panState = null;
   let undoStack = [];
 
@@ -80,9 +81,10 @@
     const hasChildren = node.children.length > 0;
     if (!hasBody && !hasChildren) { node._sh = NODE_H; return; }
     let totalH = 0;
-    if (hasBody) totalH += bodyItems.length * BODY_H + Math.max(0, bodyItems.length - 1) * BODY_V_GAP;
-    if (hasBody && hasChildren) totalH += V_GAP;
+    // 子見出しが上、本文が下
     if (hasChildren) totalH += node.children.reduce((s, c) => s + c._sh, 0) + (node.children.length - 1) * V_GAP;
+    if (hasChildren && hasBody) totalH += V_GAP;
+    if (hasBody) totalH += bodyItems.length * BODY_H + Math.max(0, bodyItems.length - 1) * BODY_V_GAP;
     node._sh = Math.max(NODE_H, totalH);
   }
 
@@ -95,16 +97,18 @@
     node._bodyItems = bodyItems;
     let cy = topY;
 
+    // 子見出しを上側に配置
+    for (const child of node.children) {
+      assignPositions(child, x + H_SPACE, cy);
+      cy += child._sh + V_GAP;
+    }
+    if (node.children.length > 0 && bodyItems.length > 0) cy += V_GAP - BODY_V_GAP;
+
+    // 本文項目を下側に配置
     for (const item of bodyItems) {
       item._x = x + H_SPACE;
       item._y = cy;
       cy += BODY_H + BODY_V_GAP;
-    }
-    if (bodyItems.length > 0 && node.children.length > 0) cy += V_GAP - BODY_V_GAP;
-
-    for (const child of node.children) {
-      assignPositions(child, x + H_SPACE, cy);
-      cy += child._sh + V_GAP;
     }
   }
 
@@ -250,7 +254,7 @@
     if (node.id === selectedId) div.classList.add('selected');
     if (node.id === editingId) div.classList.add('editing');
 
-    if (node.children.length || (node._bodyItems && node._bodyItems.length)) {
+    if (node.children.length || getBodyItems(node.body).length) {
       const btn = document.createElement('button');
       btn.className = 'toggle-btn';
       btn.textContent = node.collapsed ? '▶' : '▼';
@@ -383,6 +387,12 @@
       showBodyItemContextMenu(e, parentNode, item, key);
     });
 
+    div.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && e.target.type !== 'checkbox') {
+        beginBodyItemDrag(e, parentNode, item);
+      }
+    });
+
     container.appendChild(div);
 
     // Auto-start edit for newly added body items
@@ -451,11 +461,13 @@
       applyTransform();
     }
     if (dragState) onDragMove(e);
+    if (bodyDragState) onBodyDragMove(e);
   });
 
   document.addEventListener('mouseup', (e) => {
     if (panState) { panState = null; stage.style.cursor = ''; }
     if (dragState) onDragEnd(e);
+    if (bodyDragState) onBodyDragEnd(e);
   });
 
   stage.addEventListener('wheel', (e) => {
@@ -554,6 +566,12 @@
       const nodeEl = document.querySelector(`.body-node[data-body-key="${selectedBodyItemKey}"]`);
       const lbl = nodeEl && nodeEl.querySelector('.body-node-label');
       if (lbl) beginBodyItemEdit(parentNode, item, nodeEl, lbl);
+      return;
+    }
+    // Enter on body item → add new body item below at the same level
+    if (e.key === 'Enter' && selectedBodyItemData) {
+      e.preventDefault();
+      addBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx);
       return;
     }
     if (e.key === 'Enter' && selectedId) {
@@ -747,7 +765,6 @@
   }
 
   function addBodyItem(parentNode, afterLineIdx) {
-    if (parentNode.level >= 6) return;
     const lines = (parentNode.body || '').split('\n');
     const newLine = '- [ ] ';
     let insertAt;
@@ -1113,6 +1130,145 @@
     postStructuralEdit();
   }
 
+  // ─── Body Item Drag & Drop ────────────────────────────────────────────────
+
+  function beginBodyItemDrag(e, parentNode, item) {
+    e.preventDefault();
+    e.stopPropagation();
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.textContent = item.text;
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top = e.clientY + 'px';
+    document.body.appendChild(ghost);
+    bodyDragState = { parentNode, lineIdx: item.lineIdx, item, startX: e.clientX, startY: e.clientY, moved: false, ghost };
+  }
+
+  function onBodyDragMove(e) {
+    if (!bodyDragState) return;
+    const dx = e.clientX - bodyDragState.startX;
+    const dy = e.clientY - bodyDragState.startY;
+    if (!bodyDragState.moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) bodyDragState.moved = true;
+    if (bodyDragState.moved) {
+      bodyDragState.ghost.style.left = (e.clientX + 12) + 'px';
+      bodyDragState.ghost.style.top = (e.clientY - 18) + 'px';
+      updateBodyDropFeedback(e, bodyDragState);
+    }
+  }
+
+  function onBodyDragEnd(e) {
+    const ds = bodyDragState;
+    bodyDragState = null;
+    ds.ghost.remove();
+    clearBodyDropFeedback();
+    if (!ds.moved) return;
+    performBodyDrop(e, ds);
+  }
+
+  function updateBodyDropFeedback(e, ds) {
+    clearBodyDropFeedback();
+    const result = getBodyDropTarget(e, ds);
+    if (!result) return;
+    if (result.type === 'body-item') {
+      const item = result.targetItem;
+      const lineY = result.position === 'before' ? item._y : item._y + BODY_H;
+      const sx = item._x * transform.scale + transform.x;
+      const sy = lineY * transform.scale + transform.y;
+      dropIndicator.className = 'drop-line';
+      dropIndicator.style.display = 'block';
+      dropIndicator.style.left = sx + 'px';
+      dropIndicator.style.top = (sy - 2) + 'px';
+      dropIndicator.style.width = (NODE_W * transform.scale) + 'px';
+    } else if (result.type === 'heading') {
+      const el = document.querySelector(`.node[data-id="${result.targetNode.id}"]`);
+      if (el) el.classList.add('drop-over');
+    }
+  }
+
+  function clearBodyDropFeedback() {
+    document.querySelectorAll('.node.drop-over').forEach(el => el.classList.remove('drop-over'));
+    dropIndicator.style.display = 'none';
+    dropIndicator.className = '';
+  }
+
+  function getBodyDropTarget(e, ds) {
+    const stageRect = stage.getBoundingClientRect();
+    const sx = (e.clientX - stageRect.left - transform.x) / transform.scale;
+    const sy = (e.clientY - stageRect.top - transform.y) / transform.scale;
+    let best = null;
+    let bestDist = 40;
+    collectBodyDropCandidates(root, ds, sx, sy, (result, dist) => {
+      if (dist < bestDist) { bestDist = dist; best = result; }
+    });
+    return best;
+  }
+
+  function collectBodyDropCandidates(node, ds, sx, sy, cb) {
+    if (!node.collapsed && node._bodyItems) {
+      for (const item of node._bodyItems) {
+        if (node.id === ds.parentNode.id && item.lineIdx === ds.lineIdx) continue; // skip self
+        const nx = item._x, ny = item._y, nw = NODE_W, nh = BODY_H;
+        if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
+          const position = (sy - ny) < nh * 0.5 ? 'before' : 'after';
+          const cx = nx + nw / 2, cy = ny + nh / 2;
+          cb({ type: 'body-item', targetNode: node, targetItem: item, position }, Math.sqrt((sx - cx) ** 2 + (sy - cy) ** 2));
+        }
+      }
+    }
+    // Heading node as drop target (append body item)
+    const nx = node._x, ny = node._y, nw = NODE_W, nh = NODE_H;
+    if (sx >= nx - 30 && sx <= nx + nw + 30 && sy >= ny - 30 && sy <= ny + nh + 30) {
+      const cx = nx + nw / 2, cy = ny + nh / 2;
+      cb({ type: 'heading', targetNode: node }, Math.sqrt((sx - cx) ** 2 + (sy - cy) ** 2));
+    }
+    if (!node.collapsed) {
+      node.children.forEach(c => collectBodyDropCandidates(c, ds, sx, sy, cb));
+    }
+  }
+
+  function performBodyDrop(e, ds) {
+    const result = getBodyDropTarget(e, ds);
+    if (!result) return;
+    pushUndo();
+
+    const srcLines = (ds.parentNode.body || '').split('\n');
+    const srcLine = srcLines[ds.lineIdx];
+
+    if (result.type === 'body-item' && result.targetNode.id === ds.parentNode.id) {
+      // 同一親内の並び替え
+      srcLines.splice(ds.lineIdx, 1);
+      let insertAt = result.position === 'after' ? result.targetItem.lineIdx + 1 : result.targetItem.lineIdx;
+      if (ds.lineIdx < insertAt) insertAt--;
+      srcLines.splice(Math.max(0, insertAt), 0, srcLine);
+      ds.parentNode.body = srcLines.join('\n');
+      vscode.postMessage({ type: 'editBody', id: ds.parentNode.id, body: ds.parentNode.body });
+    } else {
+      // 別親への移動（structuralEdit でツリー全体を送信）
+      srcLines.splice(ds.lineIdx, 1);
+      while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
+      ds.parentNode.body = srcLines.join('\n');
+
+      if (result.type === 'body-item') {
+        const tgtLines = (result.targetNode.body || '').split('\n');
+        const insertAt = result.position === 'after' ? result.targetItem.lineIdx + 1 : result.targetItem.lineIdx;
+        tgtLines.splice(insertAt, 0, srcLine);
+        result.targetNode.body = tgtLines.join('\n');
+      } else {
+        // heading: 末尾に追加
+        const tgtLines = (result.targetNode.body || '').split('\n');
+        const tgtItems = getBodyItems(result.targetNode.body);
+        const insertAt = tgtItems.length > 0 ? tgtItems[tgtItems.length - 1].lineIdx + 1 : tgtLines.length;
+        tgtLines.splice(insertAt, 0, srcLine);
+        result.targetNode.body = tgtLines.join('\n');
+      }
+      postStructuralEdit();
+    }
+
+    selectedBodyItemKey = null;
+    selectedBodyItemData = null;
+    render();
+  }
+
   function isDescendant(ancestor, node) {
     if (ancestor.id === node.id) return true;
     return ancestor.children.some(c => isDescendant(c, node));
@@ -1239,7 +1395,7 @@
         }
       }
     } else if (key === 'ArrowLeft') {
-      if ((currentNode.children.length || (currentNode._bodyItems && currentNode._bodyItems.length)) && !currentNode.collapsed) {
+      if ((currentNode.children.length || getBodyItems(currentNode.body).length) && !currentNode.collapsed) {
         pushUndo();
         currentNode.collapsed = true;
         render();
