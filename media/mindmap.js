@@ -144,7 +144,20 @@
         transform.x = (rect.width - w * transform.scale) / 2 + (PAD - bounds.minX) * transform.scale;
         transform.y = (rect.height - h * transform.scale) / 2 + (PAD - bounds.minY) * transform.scale;
       } else if (rect.width === 0 || rect.height === 0) {
-        _fitQueued = true; // ResizeObserver will handle initial load
+        // Stage not ready yet. Set flag for ResizeObserver AND schedule a
+        // direct rAF retry in case ResizeObserver already fired before this
+        // flag was set (race condition on panel creation).
+        _fitQueued = true;
+        const _savedCount = nodeCount;
+        requestAnimationFrame(() => {
+          if (!_fitQueued || !root) return;
+          const r2 = stage.getBoundingClientRect();
+          if (r2.width > 0 && r2.height > 0) {
+            _fitQueued = false;
+            _lastNodeCount = _savedCount - 1; // force re-fit
+            render();
+          }
+        });
       }
     }
 
