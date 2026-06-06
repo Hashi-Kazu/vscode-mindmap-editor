@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.1] - 2026-06-05
+
+### Fixed
+- "↑ ノード化" is now disabled for body items that have nested child items — converting such items would orphan their children in the Markdown body
+
+### Docs
+- REQUIREMENTS.md updated to document all previously undocumented requirements:
+  R-13-09 (Enter adds sibling body item), R-13-10 (body item drag & drop),
+  US-15 (nested body items hierarchy), US-16 (checkbox progress widget),
+  R-14-02 updated to include "no children" restriction
+
 ## [1.7.0] - 2026-06-05
 
 ### Added
