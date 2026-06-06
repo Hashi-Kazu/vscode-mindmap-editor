@@ -260,6 +260,8 @@ export class MindMapPanel {
     <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
     <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
     <span class="sep"></span>
+    <span id="checkbox-progress" title="チェックボックスの進捗"></span>
+    <span class="sep"></span>
     <span id="hint">矢印キー: 移動　Enter: 兄弟追加　F2/ダブルクリック: 編集　Tab: 子追加　Alt+↑↓: 上下入替　Del: 削除　右クリック: 本文項目追加/変換　Ctrl+Z: 元に戻す</span>
     <span id="save-indicator">✓ 保存済</span>
   </div>

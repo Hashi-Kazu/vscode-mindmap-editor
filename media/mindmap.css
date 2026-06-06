@@ -384,3 +384,41 @@ body {
 .body-node .edit-input {
   font-size: 12px;
 }
+
+/* Nested body items: slightly muted */
+.body-node-nested {
+  opacity: 0.88;
+  background: rgba(255,255,255,0.02);
+}
+
+/* ── Checkbox Progress Widget ────────────────────────────────────────────── */
+
+#checkbox-progress {
+  font-size: 11px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  opacity: 0.8;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+  transition: border-color 0.3s;
+}
+
+#checkbox-progress:empty {
+  display: none;
+}
+
+#checkbox-progress::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--cb-pct, 0%);
+  background: var(--vscode-gitDecoration-addedResourceForeground, #4ec994);
+  opacity: 0.18;
+  transition: width 0.35s ease;
+}
