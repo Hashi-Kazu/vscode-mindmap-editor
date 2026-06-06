@@ -986,7 +986,13 @@
         addBodyItem(contextBodyItem.parentNode, last, contextBodyItem.item.indent);
         break;
       }
-      case 'body-item-to-node': { if (contextBodyItem) convertBodyLineToNode(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
+      case 'body-item-to-node': {
+        if (!contextBodyItem) break;
+        const { parentNode: bn, item: bi } = contextBodyItem;
+        if (bi.children.length > 0) break; // 子項目がある場合はノード化不可
+        convertBodyLineToNode(bn, bi.lineIdx);
+        break;
+      }
       case 'body-item-delete':  { if (contextBodyItem) deleteBodyItem(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
     }
   }
@@ -1033,7 +1039,7 @@
       { action: 'body-add-sibling', label: '同階層に追加',              disabled: false },
       { action: 'body-add-child',   label: '子項目を追加',              disabled: false },
       { divider: true },
-      { action: 'body-item-to-node',label: '↑ ノード化 (→ 見出し)',    disabled: parentNode.level >= 6 || item.indent > 0 },
+      { action: 'body-item-to-node',label: '↑ ノード化 (→ 見出し)',    disabled: parentNode.level >= 6 || item.indent > 0 || item.children.length > 0 },
       { divider: true },
       { action: 'body-item-delete', label: '本文行を削除',              danger: true },
     ]);
