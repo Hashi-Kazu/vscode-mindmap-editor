@@ -39,6 +39,10 @@
   let panState = null;
   let undoStack = [];
 
+  // Body item collapse state — persists across renders (session-only)
+  // key: `${nodeId}:${lineIdx}`
+  const collapsedBodyItems = new Map();
+
   // ─── DOM refs ─────────────────────────────────────────────────────────────
 
   const stage        = document.getElementById('stage');
@@ -62,6 +66,21 @@
     return items;
   }
 
+  /** Apply saved collapse state to a body item tree */
+  function applyBodyItemCollapseState(items, nodeId) {
+    for (const item of items) {
+      item.collapsed = collapsedBodyItems.get(`${nodeId}:${item.lineIdx}`) || false;
+      applyBodyItemCollapseState(item.children, nodeId);
+    }
+  }
+
+  /** Get hierarchical body item tree with collapse state applied */
+  function getBodyTree(node) {
+    const tree = getBodyItemTree(node.body);
+    applyBodyItemCollapseState(tree, node.id);
+    return tree;
+  }
+
   /** Hierarchical tree of body list items (parent→children based on indent) */
   function getBodyItemTree(bodyText) {
     const flat = getBodyItems(bodyText);
@@ -78,7 +97,7 @@
   }
 
   function computeBodyItemSubtreeH(item) {
-    if (!item.children.length) { item._sh = BODY_H; return; }
+    if (item.collapsed || !item.children.length) { item._sh = BODY_H; return; }
     item.children.forEach(computeBodyItemSubtreeH);
     const sum  = item.children.reduce((s, c) => s + c._sh, 0);
     const gaps = (item.children.length - 1) * BODY_V_GAP;
@@ -88,6 +107,7 @@
   function assignBodyItemPositions(item, x, topY) {
     item._x = x;
     item._y = topY + item._sh / 2 - BODY_H / 2;
+    if (item.collapsed) return;
     let cy = topY;
     for (const child of item.children) {
       assignBodyItemPositions(child, x + BODY_H_SPACE, cy);
@@ -101,9 +121,9 @@
     return bodyItemLastLineIdx(item.children[item.children.length - 1]);
   }
 
-  /** Total count of items in a body tree (all depths) */
+  /** Total count of visible items in a body tree (respects collapsed) */
   function countBodyTree(items) {
-    return items.reduce((s, item) => s + 1 + countBodyTree(item.children), 0);
+    return items.reduce((s, item) => s + 1 + (item.collapsed ? 0 : countBodyTree(item.children)), 0);
   }
 
   // ─── Layout ───────────────────────────────────────────────────────────────
@@ -112,7 +132,7 @@
     if (node.collapsed) { node._sh = NODE_H; return; }
     node.children.forEach(computeSubtreeH);
 
-    const bodyTree = getBodyItemTree(node.body);
+    const bodyTree = getBodyTree(node);
     bodyTree.forEach(computeBodyItemSubtreeH);
     const hasChildren = node.children.length > 0;
     const hasBody = bodyTree.length > 0;
@@ -133,9 +153,9 @@
     node._y = topY + node._sh / 2 - NODE_H / 2;
     if (node.collapsed) { node._bodyItems = []; return; }
 
-    const bodyTree = getBodyItemTree(node.body);
+    const bodyTree = getBodyTree(node);
     bodyTree.forEach(computeBodyItemSubtreeH);
-    node._bodyItems = bodyTree; // store tree roots
+    node._bodyItems = bodyTree; // store tree roots (with collapse state applied)
 
     let cy = topY;
     // heading children first (top)
@@ -234,7 +254,7 @@
 
   function drawBodyItemConnections(items, svg) {
     for (const item of items) {
-      if (!item.children.length) continue;
+      if (item.collapsed || !item.children.length) continue;
       for (const child of item.children) {
         const x1 = item._x + NODE_W, y1 = item._y + BODY_H / 2;
         const x2 = child._x,          y2 = child._y + BODY_H / 2;
@@ -467,8 +487,12 @@
   }
 
   function toggleBodyItemCollapse(item, parentNode) {
-    item.collapsed = !item.collapsed;
-    // Persist collapse state in the body text? For now just re-render
+    const key = `${parentNode.id}:${item.lineIdx}`;
+    if (collapsedBodyItems.get(key)) {
+      collapsedBodyItems.delete(key);
+    } else {
+      collapsedBodyItems.set(key, true);
+    }
     render();
   }
 
@@ -913,6 +937,8 @@
   function deleteBodyItem(parentNode, lineIdx) {
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
+    // Clean up collapse state for the deleted item
+    collapsedBodyItems.delete(`${parentNode.id}:${lineIdx}`);
     pushUndo();
     lines.splice(lineIdx, 1);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
