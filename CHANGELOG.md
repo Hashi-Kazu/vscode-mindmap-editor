@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.2] - 2026-06-05
+
+### Fixed
+- Nested body items no longer overlap their parent body items: `BODY_H_SPACE` changed from 220 px to `NODE_W + 12` = 272 px — R-15-01
+
+### Changed
+- Toolbar hint text removed; keyboard shortcuts are now accessible via the **?** button (click to open / close a floating popup) — R-16-04
+- Checkbox progress widget: added `min-width: 92px` and `flex-shrink: 0` to prevent truncation with 4-digit counts — R-16-01
+
 ## [1.8.1] - 2026-06-05
 
 ### Fixed
