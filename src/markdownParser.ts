@@ -10,8 +10,9 @@ type Section = { level: number; text: string; bodyLines: string[] };
 
 export interface ParseResult {
   root: MindMapNode;
-  frontmatter: string;  // raw frontmatter block including --- delimiters
-  preamble: string;     // lines before any heading (after frontmatter)
+  frontmatter: string;            // raw frontmatter block including --- delimiters
+  preamble: string;               // lines before any heading (after frontmatter)
+  bodyItemCollapsePaths: string[]; // body-item-collapse paths from frontmatter
 }
 
 export function parseMarkdown(content: string, filepath: string): ParseResult {
@@ -31,6 +32,7 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
       collapsedPaths = parseCollapsePaths(frontmatter);
     }
   }
+  const bodyItemCollapsePaths = parseBodyItemCollapsePaths(frontmatter);
 
   // Split body into sections: each section = { level, text, bodyLines }
   const sections: Section[] = [];
@@ -76,7 +78,7 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
 
   applyCollapsedPaths(root, collapsedPaths, '');
 
-  return { root, frontmatter, preamble };
+  return { root, frontmatter, preamble, bodyItemCollapsePaths };
 }
 
 function makeNode(text: string, level: number, bodyLines: string[]): MindMapNode {
@@ -92,6 +94,15 @@ function makeNode(text: string, level: number, bodyLines: string[]): MindMapNode
     collapsed: false,
     body: bodyLines.join('\n'),
   };
+}
+
+function parseBodyItemCollapsePaths(frontmatter: string): string[] {
+  const m = frontmatter.match(/body-item-collapse:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
+  if (!m) return [];
+  return m[1]
+    .split('\n')
+    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').trim())
+    .filter(Boolean);
 }
 
 function parseCollapsePaths(frontmatter: string): string[] {

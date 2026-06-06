@@ -494,6 +494,7 @@
       collapsedBodyItems.set(key, true);
     }
     render();
+    postBodyItemCollapseState(); // persist to frontmatter
   }
 
   // ─── Checkbox Progress ────────────────────────────────────────────────────
@@ -1536,10 +1537,89 @@
     if (msg.type === 'update') {
       if (editingId) return;
       root = msg.root;
+      // Restore body item collapse state from frontmatter
+      if (msg.bodyItemCollapsePaths) {
+        applyBodyItemCollapsePaths(msg.bodyItemCollapsePaths);
+      }
       render();
     }
     if (msg.type === 'saved') showSaveIndicator();
   });
+
+  /** Convert frontmatter paths → collapsedBodyItems Map entries */
+  function applyBodyItemCollapsePaths(paths) {
+    collapsedBodyItems.clear();
+    if (!root || !paths || !paths.length) return;
+    for (const path of paths) {
+      const sep = path.indexOf('::');
+      if (sep === -1) continue;
+      const headingPath = path.substring(0, sep);
+      const itemChain   = path.substring(sep + 2).split('::');
+      const node = findNodeByHeadingPath(headingPath);
+      if (!node) continue;
+      const items = getBodyItemTree(node.body);
+      const item  = findBodyItemByChain(items, itemChain, 0);
+      if (!item) continue;
+      collapsedBodyItems.set(`${node.id}:${item.lineIdx}`, true);
+    }
+  }
+
+  function findNodeByHeadingPath(headingPath) {
+    if (!root) return null;
+    const parts = headingPath.split('/');
+    if (root.text !== parts[0]) return null;
+    let cur = root;
+    for (let i = 1; i < parts.length; i++) {
+      const next = cur.children.find(c => c.text === parts[i]);
+      if (!next) return null;
+      cur = next;
+    }
+    return cur;
+  }
+
+  function findBodyItemByChain(items, textChain, depth) {
+    if (depth >= textChain.length) return null;
+    for (const item of items) {
+      if (item.text === textChain[depth]) {
+        if (depth === textChain.length - 1) return item;
+        const found = findBodyItemByChain(item.children, textChain, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /** Convert collapsedBodyItems Map → frontmatter path strings */
+  function extractBodyItemCollapsePaths() {
+    if (!root) return [];
+    const result = [];
+    walkNode(root, '');
+    return result;
+
+    function walkNode(node, parentPath) {
+      const myPath = parentPath ? `${parentPath}/${node.text}` : node.text;
+      if (!node.collapsed && node._bodyItems) {
+        for (const item of node._bodyItems) {
+          walkItem(item, node.id, myPath, '');
+        }
+      }
+      for (const child of node.children) walkNode(child, myPath);
+    }
+
+    function walkItem(item, nodeId, headingPath, chain) {
+      const myChain = chain ? `${chain}::${item.text}` : item.text;
+      if (collapsedBodyItems.get(`${nodeId}:${item.lineIdx}`)) {
+        result.push(`${headingPath}::${myChain}`);
+      }
+      if (!item.collapsed) {
+        for (const child of item.children) walkItem(child, nodeId, headingPath, myChain);
+      }
+    }
+  }
+
+  function postBodyItemCollapseState() {
+    vscode.postMessage({ type: 'saveBodyItemCollapseState', paths: extractBodyItemCollapsePaths() });
+  }
 
   function showSaveIndicator() {
     const el = document.getElementById('save-indicator');

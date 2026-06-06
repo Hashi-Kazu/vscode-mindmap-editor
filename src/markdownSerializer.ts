@@ -4,12 +4,13 @@ export function serializeToMarkdown(
   root: MindMapNode,
   frontmatter: string,
   preamble: string,
-  collapsedPaths: string[]
+  collapsedPaths: string[],
+  bodyItemCollapsedPaths: string[] = []
 ): string {
   const parts: string[] = [];
 
   // Build frontmatter with updated collapse state
-  const fm = buildFrontmatter(frontmatter, collapsedPaths);
+  const fm = buildFrontmatter(frontmatter, collapsedPaths, bodyItemCollapsedPaths);
   if (fm) {
     parts.push(fm);
     parts.push('');
@@ -47,24 +48,32 @@ function serializeNode(node: MindMapNode, parts: string[]): void {
   }
 }
 
-function buildFrontmatter(existing: string, collapsedPaths: string[]): string {
-  const collapseBlock =
-    collapsedPaths.length > 0
-      ? `mindmap-collapse:\n${collapsedPaths.map(p => `  - "${p}"`).join('\n')}`
-      : '';
+function buildFrontmatter(
+  existing: string,
+  collapsedPaths: string[],
+  bodyItemCollapsedPaths: string[] = []
+): string {
+  const collapseBlock = collapsedPaths.length > 0
+    ? `mindmap-collapse:\n${collapsedPaths.map(p => `  - "${p}"`).join('\n')}`
+    : '';
+  const bodyCollapseBlock = bodyItemCollapsedPaths.length > 0
+    ? `body-item-collapse:\n${bodyItemCollapsedPaths.map(p => `  - "${p}"`).join('\n')}`
+    : '';
 
   if (!existing) {
-    return collapseBlock ? `---\n${collapseBlock}\n---` : '';
+    const blocks = [collapseBlock, bodyCollapseBlock].filter(Boolean).join('\n');
+    return blocks ? `---\n${blocks}\n---` : '';
   }
 
-  // Strip the --- delimiters and remove old mindmap-collapse block
+  // Strip the --- delimiters and remove old managed blocks
   const inner = existing
     .replace(/^---\n/, '')
     .replace(/\n---$/, '')
     .replace(/mindmap-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
+    .replace(/body-item-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
     .trim();
 
-  const newInner = [inner, collapseBlock].filter(Boolean).join('\n');
+  const newInner = [inner, collapseBlock, bodyCollapseBlock].filter(Boolean).join('\n');
   return newInner ? `---\n${newInner}\n---` : '';
 }
 

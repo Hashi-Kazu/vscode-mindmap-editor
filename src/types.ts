@@ -18,4 +18,5 @@ export type WebviewMessage =
   | { type: 'structuralEdit'; root: MindMapNode }
   | { type: 'renameNode'; id: string; newText: string }
   | { type: 'saveCollapseState'; collapsedPaths: string[] }
-  | { type: 'editBody'; id: string; body: string };
+  | { type: 'editBody'; id: string; body: string }
+  | { type: 'saveBodyItemCollapseState'; paths: string[] };

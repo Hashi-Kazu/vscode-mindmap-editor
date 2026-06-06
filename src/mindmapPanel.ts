@@ -16,6 +16,7 @@ export class MindMapPanel {
   private lastPreamble = '';
   private lastFrontmatter = '';
   private lastRoot: MindMapNode | null = null;
+  private lastBodyItemCollapsePaths: string[] = [];
 
   // Guard against echo loops: skip onDidChangeTextDocument while we apply our own edit
   private applyingEdit = false;
@@ -87,14 +88,15 @@ export class MindMapPanel {
   }
 
   private syncFromDocument(doc: vscode.TextDocument): void {
-    const { root, frontmatter, preamble } = parseMarkdown(
+    const { root, frontmatter, preamble, bodyItemCollapsePaths } = parseMarkdown(
       doc.getText(),
       doc.uri.fsPath
     );
     this.lastRoot = root;
     this.lastFrontmatter = frontmatter;
     this.lastPreamble = preamble;
-    this.panel.webview.postMessage({ type: 'update', root });
+    this.lastBodyItemCollapsePaths = bodyItemCollapsePaths;
+    this.panel.webview.postMessage({ type: 'update', root, bodyItemCollapsePaths });
   }
 
   private async handleWebviewMessage(msg: {
@@ -125,7 +127,8 @@ export class MindMapPanel {
             webRoot,
             this.lastFrontmatter,
             this.lastPreamble,
-            collapsed
+            collapsed,
+            this.lastBodyItemCollapsePaths
           );
           await this.applyDocumentEdit(newContent);
         } finally {
@@ -149,7 +152,8 @@ export class MindMapPanel {
             this.lastRoot,
             this.lastFrontmatter,
             this.lastPreamble,
-            collapsed
+            collapsed,
+            this.lastBodyItemCollapsePaths
           );
           await this.applyDocumentEdit(newContent);
         } finally {
@@ -171,7 +175,8 @@ export class MindMapPanel {
             this.lastRoot,
             this.lastFrontmatter,
             this.lastPreamble,
-            collapsed
+            collapsed,
+            this.lastBodyItemCollapsePaths
           );
           await this.applyDocumentEdit(newContent);
         } finally {
@@ -188,13 +193,29 @@ export class MindMapPanel {
           collapsedPaths: string[];
         };
         if (!this.lastRoot) break;
-        // Update collapse flags in lastRoot without re-parsing.
         applyCollapsedPaths(this.lastRoot, collapsedPaths, '');
         const newContent = serializeToMarkdown(
           this.lastRoot,
           this.lastFrontmatter,
           this.lastPreamble,
-          collapsedPaths
+          collapsedPaths,
+          this.lastBodyItemCollapsePaths
+        );
+        await this.applyDocumentEdit(newContent);
+        break;
+      }
+
+      case 'saveBodyItemCollapseState': {
+        const { paths } = msg as { type: string; paths: string[] };
+        this.lastBodyItemCollapsePaths = paths;
+        if (!this.lastRoot) break;
+        const collapsed = extractCollapsedPaths(this.lastRoot);
+        const newContent = serializeToMarkdown(
+          this.lastRoot,
+          this.lastFrontmatter,
+          this.lastPreamble,
+          collapsed,
+          paths
         );
         await this.applyDocumentEdit(newContent);
         break;
