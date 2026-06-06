@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.4] - 2026-06-05
+
+### Added
+- Body item collapse state now persists across file sessions via frontmatter (`body-item-collapse:` key) — R-15-05 updated
+  - Toggle triggers `saveBodyItemCollapseState` message → extension serializes paths to frontmatter
+  - On file open, `body-item-collapse:` is parsed and sent in the `update` message → webview restores the Map
+  - Path format: `headingPath::bodyItemText` (or `headingPath::parentText::childText` for nested)
+  - `markdownParser.ts`: added `parseBodyItemCollapsePaths`, extended `ParseResult`
+  - `markdownSerializer.ts`: added `bodyItemCollapsedPaths` param to `buildFrontmatter`
+  - `types.ts`: added `saveBodyItemCollapseState` message type
+
+## [1.8.3] - 2026-06-05
+
+### Added
+- Body items with child items can now be collapsed/expanded via the ▼/▶ toggle button — R-15-05
+  - Collapse state is stored in a session-level `Map` (key: `nodeId:lineIdx`) and survives re-renders
+  - Deleted items are cleaned up from the map automatically
+  - `computeBodyItemSubtreeH`, `assignBodyItemPositions`, `drawBodyItemConnections`, `countBodyTree` all respect the collapsed flag
+
 ## [1.8.2] - 2026-06-05
 
 ### Fixed
