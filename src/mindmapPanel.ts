@@ -260,10 +260,37 @@ export class MindMapPanel {
     <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
     <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
     <span class="sep"></span>
-    <span id="checkbox-progress" title="チェックボックスの進捗"></span>
-    <span class="sep"></span>
-    <span id="hint">矢印キー: 移動　Enter: 兄弟追加　F2/ダブルクリック: 編集　Tab: 子追加　Alt+↑↓: 上下入替　Del: 削除　右クリック: 本文項目追加/変換　Ctrl+Z: 元に戻す</span>
+    <span id="checkbox-progress"></span>
+    <span style="flex:1"></span>
     <span id="save-indicator">✓ 保存済</span>
+    <button id="btn-help" title="キーボードショートカット一覧を表示">?</button>
+  </div>
+  <div id="help-popup" class="hidden">
+    <div class="help-section">見出しノード</div>
+    <table class="help-table">
+      <tr><td>矢印キー</td><td>ノード間移動</td></tr>
+      <tr><td>F2 / ダブルクリック</td><td>ノード名を編集</td></tr>
+      <tr><td>Enter</td><td>兄弟ノードを追加</td></tr>
+      <tr><td>Tab</td><td>子ノードを追加</td></tr>
+      <tr><td>Del</td><td>ノードを削除</td></tr>
+      <tr><td>Alt+↑/↓</td><td>兄弟間の上下入れ替え</td></tr>
+      <tr><td>Ctrl+Z</td><td>元に戻す</td></tr>
+      <tr><td>Ctrl+S</td><td>保存</td></tr>
+      <tr><td>F</td><td>画面にフィット</td></tr>
+    </table>
+    <div class="help-section">本文項目</div>
+    <table class="help-table">
+      <tr><td>Enter</td><td>同階層に本文項目を追加</td></tr>
+      <tr><td>Tab</td><td>子本文項目を追加</td></tr>
+      <tr><td>F2 / ダブルクリック</td><td>本文テキストを編集</td></tr>
+      <tr><td>Del</td><td>本文行を削除</td></tr>
+    </table>
+    <div class="help-section">共通</div>
+    <table class="help-table">
+      <tr><td>右クリック</td><td>コンテキストメニュー</td></tr>
+      <tr><td>Ctrl++/-</td><td>ズームイン/アウト</td></tr>
+      <tr><td>ドラッグ</td><td>ノード/本文の移動</td></tr>
+    </table>
   </div>
   <div id="stage">
     <svg id="svg-layer"></svg>

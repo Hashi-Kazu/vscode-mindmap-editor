@@ -11,7 +11,7 @@
   const BODY_H     = 30;    // body item node height
   const BODY_V_GAP = 8;     // gap between body items (same level)
   const H_SPACE    = 280;   // horizontal space between heading levels
-  const BODY_H_SPACE = 220; // horizontal space for nested body item levels
+  const BODY_H_SPACE = NODE_W + 12; // 272px — must exceed NODE_W to prevent overlap
   const V_GAP      = 16;    // vertical gap between heading siblings
   const PAD        = 60;
   const MAX_UNDO   = 50;
@@ -576,7 +576,21 @@
 
   document.addEventListener('click', (e) => {
     if (!ctxMenu.contains(e.target)) hideContextMenu();
+    const helpPopup = document.getElementById('help-popup');
+    const btnHelp   = document.getElementById('btn-help');
+    if (helpPopup && btnHelp && !btnHelp.contains(e.target) && !helpPopup.contains(e.target)) {
+      helpPopup.classList.add('hidden');
+    }
   });
+
+  const btnHelp = document.getElementById('btn-help');
+  if (btnHelp) {
+    btnHelp.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const p = document.getElementById('help-popup');
+      if (p) p.classList.toggle('hidden');
+    });
+  }
 
   // ─── Toolbar ─────────────────────────────────────────────────────────────
 

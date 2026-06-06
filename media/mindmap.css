@@ -71,13 +71,80 @@ html, body {
   margin: 0 4px;
 }
 
-#hint {
-  margin-left: auto;
+/* #hint removed — shortcuts are now in the help popup */
+
+#btn-help {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+  opacity: 0.6;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+#btn-help:hover {
+  opacity: 1;
+  background: var(--hover-bg);
+}
+
+#help-popup {
+  position: fixed;
+  top: 40px;
+  right: 8px;
+  z-index: 200;
+  background: var(--menu-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  min-width: 260px;
+}
+
+#help-popup.hidden {
+  display: none;
+}
+
+.help-section {
   font-size: 11px;
-  opacity: 0.5;
+  font-weight: 600;
+  opacity: 0.55;
+  margin: 6px 0 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.help-section:first-child {
+  margin-top: 0;
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.help-table td {
+  padding: 2px 6px 2px 0;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.help-table td:first-child {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  opacity: 0.75;
+  padding-right: 10px;
 }
 
 /* ── Stage ───────────────────────────────────────────────────────────────── */
@@ -405,10 +472,14 @@ body {
   white-space: nowrap;
   cursor: default;
   transition: border-color 0.3s;
+  flex-shrink: 0;
+  min-width: 92px;   /* ✓ 9999 / 9999 まで収まる幅 */
+  text-align: center;
 }
 
 #checkbox-progress:empty {
   display: none;
+  min-width: 0;
 }
 
 #checkbox-progress::before {
