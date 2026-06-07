@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.5] - 2026-06-07
+
+### Fixed
+- Body child items now show connection lines correctly — `drawBodyItemConnections` was passing `child.children` to the recursive call, skipping the parent→child level draw. Fixed by moving the recursive call outside the inner loop and passing `item.children`.
+
 ## [1.8.4] - 2026-06-05
 
 ### Added
