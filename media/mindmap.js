@@ -38,6 +38,7 @@
   let bodyDragState = null;
   let panState = null;
   let undoStack = [];
+  let clipboard = null; // { type: 'heading'|'body', lines?: string[], indent?: number, node?: object }
 
   // Body item collapse state — persists across renders (session-only)
   // key: `${nodeId}:${lineIdx}`
@@ -650,6 +651,9 @@
 
     if (editingId) return;
 
+    if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); performCopy(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); performPaste(); return; }
+
     if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'f' || e.key === 'F')) { fitView(); return; }
 
     // Delete
@@ -936,12 +940,16 @@
   }
 
   function deleteBodyItem(parentNode, lineIdx) {
+    const tree = getBodyItemTree(parentNode.body);
+    const item = findBodyItemByLineIdx(tree, lineIdx);
+    if (!item) return;
+    const lastLine = bodyItemLastLineIdx(item);
+    const lineCount = lastLine - lineIdx + 1;
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
-    // Clean up collapse state for the deleted item
     collapsedBodyItems.delete(`${parentNode.id}:${lineIdx}`);
     pushUndo();
-    lines.splice(lineIdx, 1);
+    lines.splice(lineIdx, lineCount);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     parentNode.body = lines.join('\n');
     selectedBodyItemKey = null;
@@ -1374,38 +1382,162 @@
   function performBodyDrop(e, ds) {
     const result = getBodyDropTarget(e, ds);
     if (!result) return;
+
+    const srcBodyTree = getBodyItemTree(ds.parentNode.body);
+    const srcItem = findBodyItemByLineIdx(srcBodyTree, ds.lineIdx);
+    if (!srcItem) return;
+
     pushUndo();
+
+    // Extract the full subtree lines (item + all descendants)
+    const srcLastLine = bodyItemLastLineIdx(srcItem);
+    const srcLineCount = srcLastLine - ds.lineIdx + 1;
     const srcLines = (ds.parentNode.body || '').split('\n');
-    const srcLine  = srcLines[ds.lineIdx];
+    const movedLines = srcLines.slice(ds.lineIdx, ds.lineIdx + srcLineCount);
+
+    // Reformat indentation: top-level (indent=0) → checkbox, nested → plain bullet
+    const destIndent = result.type === 'heading' ? 0 : result.targetItem.indent;
+    const reformattedLines = reformatBodyLines(movedLines, srcItem.indent, destIndent);
+
+    // Remove from source
+    srcLines.splice(ds.lineIdx, srcLineCount);
+    while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
+    ds.parentNode.body = srcLines.join('\n');
 
     if (result.type === 'body-item' && result.targetNode.id === ds.parentNode.id) {
-      srcLines.splice(ds.lineIdx, 1);
-      let insertAt = result.position === 'after' ? result.targetItem.lineIdx + 1 : result.targetItem.lineIdx;
-      if (ds.lineIdx < insertAt) insertAt--;
-      srcLines.splice(Math.max(0, insertAt), 0, srcLine);
-      ds.parentNode.body = srcLines.join('\n');
+      // Same parent: adjust target indices after removal, then insert after subtree
+      const origTargetLineIdx = result.targetItem.lineIdx;
+      const origTargetLastLine = bodyItemLastLineIdx(result.targetItem);
+      const shift = origTargetLineIdx > srcLastLine ? srcLineCount : 0;
+      const newTargetLineIdx  = origTargetLineIdx  - shift;
+      const newTargetLastLine = origTargetLastLine - shift;
+      const insertAt = result.position === 'after' ? newTargetLastLine + 1 : newTargetLineIdx;
+      const updatedLines = ds.parentNode.body ? ds.parentNode.body.split('\n') : [];
+      updatedLines.splice(Math.max(0, insertAt), 0, ...reformattedLines);
+      ds.parentNode.body = updatedLines.join('\n');
       vscode.postMessage({ type: 'editBody', id: ds.parentNode.id, body: ds.parentNode.body });
     } else {
-      srcLines.splice(ds.lineIdx, 1);
-      while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
-      ds.parentNode.body = srcLines.join('\n');
+      // Different parent or drop onto heading node
       if (result.type === 'body-item') {
         const tgtLines = (result.targetNode.body || '').split('\n');
-        const insertAt = result.position === 'after' ? result.targetItem.lineIdx + 1 : result.targetItem.lineIdx;
-        tgtLines.splice(insertAt, 0, srcLine);
+        const insertAt = result.position === 'after'
+          ? bodyItemLastLineIdx(result.targetItem) + 1
+          : result.targetItem.lineIdx;
+        tgtLines.splice(insertAt, 0, ...reformattedLines);
         result.targetNode.body = tgtLines.join('\n');
       } else {
-        const tgtItems = getBodyItems(result.targetNode.body);
+        const tgtAllItems = getBodyItems(result.targetNode.body);
         const tgtLines = (result.targetNode.body || '').split('\n');
-        const insertAt = tgtItems.length > 0 ? tgtItems[tgtItems.length - 1].lineIdx + 1 : tgtLines.length;
-        tgtLines.splice(insertAt, 0, srcLine);
+        const insertAt = tgtAllItems.length > 0
+          ? tgtAllItems[tgtAllItems.length - 1].lineIdx + 1
+          : tgtLines.length;
+        tgtLines.splice(insertAt, 0, ...reformattedLines);
         result.targetNode.body = tgtLines.join('\n');
       }
       postStructuralEdit();
     }
+
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
     render();
+  }
+
+  /** Reformat body lines when moving between indent levels.
+   *  indent=0 → checkbox (- [ ] / - [x] ), indent>0 → plain bullet (- text) */
+  function reformatBodyLines(lines, srcIndent, destIndent) {
+    const delta = destIndent - srcIndent;
+    return lines.map(line => {
+      const m = line.match(/^(\s*)-\s+(\[[ xX]\]\s+)?(.*)$/);
+      if (!m) return line;
+      const newIndent = Math.max(0, m[1].length + delta);
+      const indStr = ' '.repeat(newIndent);
+      const text = m[3];
+      if (newIndent === 0) {
+        return m[2] ? `${indStr}- ${m[2].trimEnd()} ${text}` : `${indStr}- [ ] ${text}`;
+      } else {
+        return `${indStr}- ${text}`;
+      }
+    });
+  }
+
+  // ─── Copy / Paste ─────────────────────────────────────────────────────────
+
+  function cloneWithNewIds(node) {
+    return {
+      id: String(_idSeq++),
+      text: node.text,
+      level: node.level,
+      collapsed: node.collapsed,
+      body: node.body,
+      children: node.children.map(cloneWithNewIds)
+    };
+  }
+
+  function performCopy() {
+    if (selectedBodyItemData) {
+      const { parentNode, lineIdx } = selectedBodyItemData;
+      const tree = getBodyItemTree(parentNode.body);
+      const item = findBodyItemByLineIdx(tree, lineIdx);
+      if (!item) return;
+      const lastLine = bodyItemLastLineIdx(item);
+      const lines = (parentNode.body || '').split('\n');
+      clipboard = { type: 'body', lines: lines.slice(lineIdx, lastLine + 1), indent: item.indent };
+    } else if (selectedId && root) {
+      const node = findById(root, selectedId);
+      if (!node) return;
+      clipboard = { type: 'heading', node: cloneForUndo(node) };
+    }
+  }
+
+  function performPaste() {
+    if (!clipboard) return;
+
+    if (clipboard.type === 'body') {
+      if (selectedBodyItemData) {
+        const { parentNode, lineIdx } = selectedBodyItemData;
+        const tree = getBodyItemTree(parentNode.body);
+        const item = findBodyItemByLineIdx(tree, lineIdx);
+        const lastLine = item ? bodyItemLastLineIdx(item) : lineIdx;
+        const pasteLines = reformatBodyLines(clipboard.lines, clipboard.indent, selectedBodyItemData.indent);
+        const lines = (parentNode.body || '').split('\n');
+        pushUndo();
+        lines.splice(lastLine + 1, 0, ...pasteLines);
+        parentNode.body = lines.join('\n');
+        vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+        render();
+      } else if (selectedId && root) {
+        const node = findById(root, selectedId);
+        if (!node) return;
+        const pasteLines = reformatBodyLines(clipboard.lines, clipboard.indent, 0);
+        const allItems = getBodyItems(node.body);
+        const lines = (node.body || '').split('\n');
+        const insertAt = allItems.length > 0 ? allItems[allItems.length - 1].lineIdx + 1 : lines.length;
+        pushUndo();
+        lines.splice(insertAt, 0, ...pasteLines);
+        node.body = lines.join('\n');
+        vscode.postMessage({ type: 'editBody', id: node.id, body: node.body });
+        render();
+      }
+    } else if (clipboard.type === 'heading') {
+      if (!selectedId || !root) return;
+      const node = findById(root, selectedId);
+      if (!node) return;
+      const parent = findParent(root, node);
+      if (!parent) return;
+      const cloned = cloneWithNewIds(clipboard.node);
+      const levelDelta = node.level - cloned.level;
+      function adjustLevels(n) {
+        n.level = Math.max(1, Math.min(6, n.level + levelDelta));
+        n.children.forEach(adjustLevels);
+      }
+      adjustLevels(cloned);
+      const idx = parent.children.indexOf(node);
+      pushUndo();
+      parent.children.splice(idx + 1, 0, cloned);
+      selectedId = cloned.id;
+      postStructuralEdit();
+      render();
+    }
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
