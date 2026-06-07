@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-06-08
+
+### Fixed
+- Body item drag & drop now moves the full subtree (item + all child items) together — R-13-10
+- After moving a body item, indentation is automatically adjusted: top-level (indent=0) becomes checkbox format (`- [ ] text`), nested (indent>0) becomes plain bullet (`- text`) — R-13-10
+- Dropping "after" a body item now inserts after the item's entire subtree, not just the parent line
+- `deleteBodyItem` now removes the item and all its descendant lines together
+
+### Added
+- Ctrl+C / Cmd+C: copy selected heading node (with full subtree) or body item (with child items) to internal clipboard — US-17
+- Ctrl+V / Cmd+V: paste clipboard content as sibling after the current selection; level and checkbox/bullet format adjusted automatically — US-17
+
+## [1.9.0] - 2026-06-08
+
+### Changed
+- Version bump to 1.9.0
+
 ## [1.8.5] - 2026-06-07
 
 ### Fixed
