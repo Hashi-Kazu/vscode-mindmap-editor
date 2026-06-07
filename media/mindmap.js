@@ -267,8 +267,8 @@
         p.setAttribute('stroke-dasharray', '4,3');
         p.setAttribute('stroke-opacity', '0.4');
         svg.appendChild(p);
-        drawBodyItemConnections(child.children, svg);
       }
+      drawBodyItemConnections(item.children, svg);
     }
   }
 
