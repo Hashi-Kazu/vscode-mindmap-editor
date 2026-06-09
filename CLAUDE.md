@@ -45,4 +45,4 @@ dist/             # ビルド出力（自動生成）
 
 ## 注意事項
 
-- Marketplace への公開は手動アップロード（自動化不可）
+- Marketplace への公開は GitHub Actions が自動で行う（main push 時）
