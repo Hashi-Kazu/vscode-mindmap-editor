@@ -15,67 +15,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: anthropics/claude-code-action@v1
         with:
-          python-version: '3.12'
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            あなたは vscode-mindmap-editor（VS Code 拡張機能）の開発エージェントです。
 
-      - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code
+            以下の Issue を実装・修正してください。
 
-      - name: Run AI Coder
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-        run: python scripts/ai_coder.py
+            Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
 
-      - name: Create branch and commit changes
-        env:
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          BRANCH="feature/issue-${ISSUE_NUMBER}"
-          git checkout -b "$BRANCH"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git commit -m "feat: AI-generated changes for issue #${ISSUE_NUMBER}"
-          git push origin "$BRANCH" --force
+            Issue 本文:
+            ${{ github.event.issue.body }}
 
-      - name: Create or update draft PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-        run: |
-          BRANCH="feature/issue-${ISSUE_NUMBER}"
-          SUMMARY=$(cat ai_summary.txt 2>/dev/null || echo "")
-          PR_BODY=$(printf '## AI-generated changes\n\n%s\n\nCloses #%s' "${SUMMARY}" "${ISSUE_NUMBER}")
-          EXISTING_PR=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null)
-          if [ -n "$EXISTING_PR" ]; then
-            echo "PR #${EXISTING_PR} already exists. Skipping creation."
-          else
-            gh pr create \
-              --title "feat: ${ISSUE_TITLE}" \
-              --body "$PR_BODY" \
-              --base main \
-              --head "$BRANCH" \
-              --draft
-          fi
+            ## 作業手順
 
-      - name: Post failure comment on issue
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          gh issue comment "${ISSUE_NUMBER}" \
-            --body "AI Coderワークフローが失敗しました。[Actions ログを確認してください。](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            1. リポジトリのコードを読んで現状を把握する
+            2. Issue の要求を実装・修正する
+               - ソースコードは `src/` 以下（TypeScript）
+               - WebView 用スクリプトは `media/mindmap.js`
+               - エントリポイントは `src/extension.ts`
+            3. `feature/issue-${{ github.event.issue.number }}` ブランチを作成して変更をコミットする
+               - コミットメッセージは日本語で簡潔に（例: `feat: ○○機能を追加 (#${{ github.event.issue.number }})`）
+            4. main ブランチへの draft PR を作成する
+               - PR タイトル: `feat: ${{ github.event.issue.title }}`
+               - PR 本文に変更内容のサマリーと `Closes #${{ github.event.issue.number }}` を含める
+
+            ## 注意事項
+
+            - `dist/` は編集しない（ビルド出力のため）
+            - `CLAUDE.md` は編集しない
+            - コメントは WHY が非自明な場合のみ書く
+            - バージョンバンプ（package.json の version）は変更しない（後工程で行う）
+          claude_args: |
+            --max-turns 30

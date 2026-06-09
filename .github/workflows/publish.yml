@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'src/**'
+      - 'media/**'
+      - 'package.json'
+      - 'README.md'
 
 jobs:
   publish:
