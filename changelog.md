@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2026-06-09
+
+### Changed
+- ツールバーアイコンを `$(type-hierarchy)` から `media/icon.png` に変更
+
+### Fixed
+- README Known Issues にツールバーアイコンの16px表示に関する注記を追加
+
 ## [2.0.0] - 2026-06-08
 
 ### Fixed
