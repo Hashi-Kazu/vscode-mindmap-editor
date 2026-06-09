@@ -402,14 +402,24 @@
       showHeadingContextMenu(e, node);
     });
     div.addEventListener('mousedown', (e) => {
-      if (e.button === 0 && editingId !== node.id) beginDrag(e, node);
+      // e.detail >= 2 はダブルクリックの2打目以降。ドラッグ開始を抑制しないと
+      // e.preventDefault() が dblclick イベントを阻害する。
+      if (e.button === 0 && editingId !== node.id && e.detail < 2) beginDrag(e, node);
     });
 
     parent.appendChild(div);
 
     if (node.id === _pendingEditId) {
+      const pendingId = node.id;
       _pendingEditId = null;
-      requestAnimationFrame(() => beginEdit(node, div, label));
+      // rAF 発火前に update メッセージで再描画されると div/label が古い参照になるため、
+      // コールバック内で現在の DOM 要素を再取得する。
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`.node[data-id="${pendingId}"]`);
+        const lbl = el && el.querySelector('.label');
+        const n = root && findById(root, pendingId);
+        if (el && lbl && n) beginEdit(n, el, lbl);
+      });
     }
 
     // Body item nodes (top-level, depth=0)
@@ -520,16 +530,25 @@
       showBodyItemContextMenu(e, parentNode, item, key);
     });
     div.addEventListener('mousedown', (e) => {
-      if (e.button === 0 && e.target.type !== 'checkbox') beginBodyItemDrag(e, parentNode, item);
+      if (e.button === 0 && e.target.type !== 'checkbox' && e.detail < 2) beginBodyItemDrag(e, parentNode, item);
     });
 
     container.appendChild(div);
 
     if (_pendingBodyEdit && _pendingBodyEdit.parentId === parentNode.id && _pendingBodyEdit.lineIdx === item.lineIdx) {
+      const pendingParentId = parentNode.id;
+      const pendingLineIdx = item.lineIdx;
       _pendingBodyEdit = null;
       requestAnimationFrame(() => {
-        const liveLabel = div.querySelector('.body-node-label');
-        if (liveLabel) beginBodyItemEdit(parentNode, item, div, liveLabel);
+        const key = `${pendingParentId}:${pendingLineIdx}`;
+        const el = document.querySelector(`.body-node[data-body-key="${key}"]`);
+        const lbl = el && el.querySelector('.body-node-label');
+        if (el && lbl) {
+          const pNode = root && findById(root, pendingParentId);
+          const allItems = pNode ? getBodyItems(pNode.body) : [];
+          const it = allItems.find(i => i.lineIdx === pendingLineIdx);
+          if (pNode && it) beginBodyItemEdit(pNode, it, el, lbl);
+        }
       });
     }
 
