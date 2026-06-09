@@ -1244,7 +1244,8 @@
 
     // Collect all nodes to drag (multi-select or single)
     let dragNodes;
-    if (selectedIds.size > 1 && (selectedIds.has(node.id) || selectedId === node.id)) {
+    const totalSelected = selectedIds.size + (selectedId && !selectedIds.has(selectedId) ? 1 : 0);
+    if (totalSelected > 1 && (selectedIds.has(node.id) || selectedId === node.id)) {
       // Multi-drag: gather all selected nodes
       const allSelected = new Set(selectedIds);
       if (selectedId) allSelected.add(selectedId);
@@ -1454,15 +1455,20 @@
     const result = getBodyDropTarget(e, ds);
     if (!result) return;
     if (result.type === 'body-item') {
-      const item = result.targetItem;
-      const lineY = result.position === 'before' ? item._y : item._y + BODY_H;
-      const sx = item._x * transform.scale + transform.x;
-      const sy = lineY * transform.scale + transform.y;
-      dropIndicator.className = 'drop-line';
-      dropIndicator.style.display = 'block';
-      dropIndicator.style.left  = sx + 'px';
-      dropIndicator.style.top   = (sy - 2) + 'px';
-      dropIndicator.style.width = (NODE_W * transform.scale) + 'px';
+      if (result.position === 'inside') {
+        const el = document.querySelector(`.body-node[data-body-key="${result.targetNode.id}:${result.targetItem.lineIdx}"]`);
+        if (el) el.classList.add('drop-over');
+      } else {
+        const item = result.targetItem;
+        const lineY = result.position === 'before' ? item._y : item._y + BODY_H;
+        const sx = item._x * transform.scale + transform.x;
+        const sy = lineY * transform.scale + transform.y;
+        dropIndicator.className = 'drop-line';
+        dropIndicator.style.display = 'block';
+        dropIndicator.style.left  = sx + 'px';
+        dropIndicator.style.top   = (sy - 2) + 'px';
+        dropIndicator.style.width = (NODE_W * transform.scale) + 'px';
+      }
     } else if (result.type === 'heading') {
       const el = document.querySelector(`.node[data-id="${result.targetNode.id}"]`);
       if (el) el.classList.add('drop-over');
@@ -1470,7 +1476,7 @@
   }
 
   function clearBodyDropFeedback() {
-    document.querySelectorAll('.node.drop-over').forEach(el => el.classList.remove('drop-over'));
+    document.querySelectorAll('.node.drop-over, .body-node.drop-over').forEach(el => el.classList.remove('drop-over'));
     dropIndicator.style.display = 'none';
     dropIndicator.className = '';
   }
@@ -1488,10 +1494,13 @@
 
   function collectBodyDropFromItems(items, ds, sx, sy, cb) {
     for (const item of items) {
-      if (!(ds.parentNode.id === item._parentId && item.lineIdx === ds.lineIdx)) {
+      // Skip the dragged item itself (match by owner + lineIdx)
+      const isDragSrc = item._owner && item._owner.id === ds.parentNode.id && item.lineIdx === ds.lineIdx;
+      if (!isDragSrc) {
         const nx = item._x, ny = item._y, nw = NODE_W, nh = BODY_H;
         if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
-          const pos = (sy - ny) < nh * 0.5 ? 'before' : 'after';
+          const relY = sy - ny;
+          const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
           cb({ type: 'body-item', targetNode: item._owner, targetItem: item, position: pos },
              Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
         }
@@ -1502,7 +1511,7 @@
 
   function collectBodyDropCandidates(node, ds, sx, sy, cb) {
     if (!node.collapsed && node._bodyItems) {
-      // tag items with owner
+      // tag items with owner (heading node) for later reference
       function tagOwner(items, owner) {
         for (const i of items) { i._owner = owner; tagOwner(i.children, owner); }
       }
@@ -1511,7 +1520,8 @@
         if (node.id === ds.parentNode.id && item.lineIdx === ds.lineIdx) continue;
         const nx = item._x, ny = item._y, nw = NODE_W, nh = BODY_H;
         if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
-          const pos = (sy - ny) < nh * 0.5 ? 'before' : 'after';
+          const relY = sy - ny;
+          const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
           cb({ type: 'body-item', targetNode: node, targetItem: item, position: pos },
              Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
         }
@@ -1542,8 +1552,16 @@
     const srcLines = (ds.parentNode.body || '').split('\n');
     const movedLines = srcLines.slice(ds.lineIdx, ds.lineIdx + srcLineCount);
 
-    // Reformat indentation: top-level (indent=0) → checkbox, nested → plain bullet
-    const destIndent = result.type === 'heading' ? 0 : result.targetItem.indent;
+    // Reformat indentation based on drop position:
+    // 'inside' → child of target (indent + 2), otherwise align to target's indent level
+    let destIndent;
+    if (result.type === 'heading') {
+      destIndent = 0;
+    } else if (result.position === 'inside') {
+      destIndent = result.targetItem.indent + 2;
+    } else {
+      destIndent = result.targetItem.indent;
+    }
     const reformattedLines = reformatBodyLines(movedLines, srcItem.indent, destIndent);
 
     // Remove from source
@@ -1552,13 +1570,19 @@
     ds.parentNode.body = srcLines.join('\n');
 
     if (result.type === 'body-item' && result.targetNode.id === ds.parentNode.id) {
-      // Same parent: adjust target indices after removal, then insert after subtree
+      // Same parent: adjust target indices after removal, then insert
       const origTargetLineIdx = result.targetItem.lineIdx;
       const origTargetLastLine = bodyItemLastLineIdx(result.targetItem);
       const shift = origTargetLineIdx > srcLastLine ? srcLineCount : 0;
       const newTargetLineIdx  = origTargetLineIdx  - shift;
       const newTargetLastLine = origTargetLastLine - shift;
-      const insertAt = result.position === 'after' ? newTargetLastLine + 1 : newTargetLineIdx;
+      let insertAt;
+      if (result.position === 'inside') {
+        // Insert as first child: right after the target item line itself
+        insertAt = newTargetLineIdx + 1;
+      } else {
+        insertAt = result.position === 'after' ? newTargetLastLine + 1 : newTargetLineIdx;
+      }
       const updatedLines = ds.parentNode.body ? ds.parentNode.body.split('\n') : [];
       updatedLines.splice(Math.max(0, insertAt), 0, ...reformattedLines);
       ds.parentNode.body = updatedLines.join('\n');
@@ -1567,9 +1591,15 @@
       // Different parent or drop onto heading node
       if (result.type === 'body-item') {
         const tgtLines = (result.targetNode.body || '').split('\n');
-        const insertAt = result.position === 'after'
-          ? bodyItemLastLineIdx(result.targetItem) + 1
-          : result.targetItem.lineIdx;
+        let insertAt;
+        if (result.position === 'inside') {
+          // Insert as first child: right after the target item line itself
+          insertAt = result.targetItem.lineIdx + 1;
+        } else {
+          insertAt = result.position === 'after'
+            ? bodyItemLastLineIdx(result.targetItem) + 1
+            : result.targetItem.lineIdx;
+        }
         tgtLines.splice(insertAt, 0, ...reformattedLines);
         result.targetNode.body = tgtLines.join('\n');
       } else {
@@ -1726,7 +1756,8 @@
         const tree = getBodyItemTree(parentNode.body);
         const item = findBodyItemByLineIdx(tree, lineIdx);
         const lastLine = item ? bodyItemLastLineIdx(item) : lineIdx;
-        const pasteLines = reformatBodyLines(clipboard.lines, clipboard.indent, selectedBodyItemData.indent);
+        // Paste as child of selected body item (indent + 2)
+        const pasteLines = reformatBodyLines(clipboard.lines, clipboard.indent, selectedBodyItemData.indent + 2);
         const lines = (parentNode.body || '').split('\n');
         pushUndo();
         lines.splice(lastLine + 1, 0, ...pasteLines);
