@@ -751,10 +751,6 @@
         const allIds = new Set([...selectedIds, ...(selectedId ? [selectedId] : [])]);
         const nodes = [...allIds].map(id => findById(root, id)).filter(n => n && n.id !== root.id);
         if (nodes.length === 0) return;
-        const hasChildren = nodes.some(n => n.children.length > 0);
-        if (hasChildren) {
-          if (!confirm(`${nodes.length}個のノード（一部に子ノードあり）を削除しますか？`)) return;
-        }
         pushUndo();
         for (const node of nodes) {
           const parent = findParent(root, node);
@@ -1222,9 +1218,6 @@
 
   function deleteNode(node) {
     if (!root || node.id === root.id) return;
-    if (node.children.length > 0) {
-      if (!confirm(`"${node.text}" とすべての子ノードを削除しますか？`)) return;
-    }
     const parent = findParent(root, node);
     if (!parent) return;
     pushUndo();
@@ -1425,11 +1418,33 @@
     e.preventDefault(); e.stopPropagation();
     const ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
-    ghost.textContent = item.text;
+
+    // Collect all body items to drag (multi-select or single)
+    const key = `${parentNode.id}:${item.lineIdx}`;
+    const totalBodySelected = selectedBodyItemKeys.size + (selectedBodyItemKey && !selectedBodyItemKeys.has(selectedBodyItemKey) ? 1 : 0);
+    let dragItems; // array of { parentNode, lineIdx, item }
+    if (totalBodySelected > 1 && (selectedBodyItemKeys.has(key) || selectedBodyItemKey === key)) {
+      const allKeys = new Set(selectedBodyItemKeys);
+      if (selectedBodyItemKey) allKeys.add(selectedBodyItemKey);
+      dragItems = [];
+      for (const k of allKeys) {
+        const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
+        if (!data) continue;
+        const tree = getBodyItemTree(data.parentNode.body);
+        const it = findBodyItemByLineIdx(tree, data.lineIdx);
+        if (it) dragItems.push({ parentNode: data.parentNode, lineIdx: data.lineIdx, item: it });
+      }
+      ghost.textContent = dragItems.length > 1 ? `${dragItems.length}個の項目` : (dragItems[0] ? dragItems[0].item.text : item.text);
+    } else {
+      dragItems = [{ parentNode, lineIdx: item.lineIdx, item }];
+      ghost.textContent = item.text;
+    }
+
     ghost.style.left = e.clientX + 'px';
     ghost.style.top  = e.clientY + 'px';
     document.body.appendChild(ghost);
-    bodyDragState = { parentNode, lineIdx: item.lineIdx, item, startX: e.clientX, startY: e.clientY, moved: false, ghost };
+    // Store primary drag item for drop-target calculation, plus all items for multi-drop
+    bodyDragState = { parentNode, lineIdx: item.lineIdx, item, dragItems, startX: e.clientX, startY: e.clientY, moved: false, ghost };
   }
 
   function onBodyDragMove(e) {
@@ -1542,20 +1557,9 @@
     const result = getBodyDropTarget(e, ds);
     if (!result) return;
 
-    const srcBodyTree = getBodyItemTree(ds.parentNode.body);
-    const srcItem = findBodyItemByLineIdx(srcBodyTree, ds.lineIdx);
-    if (!srcItem) return;
-
     pushUndo();
 
-    // Extract the full subtree lines (item + all descendants)
-    const srcLastLine = bodyItemLastLineIdx(srcItem);
-    const srcLineCount = srcLastLine - ds.lineIdx + 1;
-    const srcLines = (ds.parentNode.body || '').split('\n');
-    const movedLines = srcLines.slice(ds.lineIdx, ds.lineIdx + srcLineCount);
-
-    // Reformat indentation based on drop position:
-    // 'inside' → child of target (indent + 2), otherwise align to target's indent level
+    // Determine destination indent
     let destIndent;
     if (result.type === 'heading') {
       destIndent = 0;
@@ -1564,60 +1568,118 @@
     } else {
       destIndent = result.targetItem.indent;
     }
-    const reformattedLines = reformatBodyLines(movedLines, srcItem.indent, destIndent);
 
-    // Remove from source
-    srcLines.splice(ds.lineIdx, srcLineCount);
-    while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
-    ds.parentNode.body = srcLines.join('\n');
+    // Resolve all items to move (multi-drag or single)
+    const dragItems = ds.dragItems && ds.dragItems.length > 0 ? ds.dragItems : [{ parentNode: ds.parentNode, lineIdx: ds.lineIdx, item: null }];
 
-    if (result.type === 'body-item' && result.targetNode.id === ds.parentNode.id) {
-      // Same parent: adjust target indices after removal, then insert
-      const origTargetLineIdx = result.targetItem.lineIdx;
-      const origTargetLastLine = bodyItemLastLineIdx(result.targetItem);
-      const shift = origTargetLineIdx > srcLastLine ? srcLineCount : 0;
-      const newTargetLineIdx  = origTargetLineIdx  - shift;
-      const newTargetLastLine = origTargetLastLine - shift;
-      let insertAt;
-      if (result.position === 'inside') {
-        // Insert as first child: right after the target item line itself
-        insertAt = newTargetLineIdx + 1;
-      } else {
-        insertAt = result.position === 'after' ? newTargetLastLine + 1 : newTargetLineIdx;
-      }
-      const updatedLines = ds.parentNode.body ? ds.parentNode.body.split('\n') : [];
-      updatedLines.splice(Math.max(0, insertAt), 0, ...reformattedLines);
-      ds.parentNode.body = updatedLines.join('\n');
-      vscode.postMessage({ type: 'editBody', id: ds.parentNode.id, body: ds.parentNode.body });
-    } else {
-      // Different parent or drop onto heading node
-      if (result.type === 'body-item') {
+    // Resolve item objects for each drag entry, and collect all lines to move
+    // Build a list of { parentNode, lineIdx, lineCount, lines, srcIndent }
+    const resolved = [];
+    for (const di of dragItems) {
+      const tree = getBodyItemTree(di.parentNode.body);
+      const it = di.item || findBodyItemByLineIdx(tree, di.lineIdx);
+      if (!it) continue;
+      const lastLine = bodyItemLastLineIdx(it);
+      const lineCount = lastLine - di.lineIdx + 1;
+      const srcLinesArr = (di.parentNode.body || '').split('\n');
+      const movedLines = srcLinesArr.slice(di.lineIdx, di.lineIdx + lineCount);
+      resolved.push({ parentNode: di.parentNode, lineIdx: di.lineIdx, lineCount, movedLines, srcIndent: it.indent });
+    }
+    if (resolved.length === 0) return;
+
+    // Sort by lineIdx descending to avoid index shifts when removing from source
+    resolved.sort((a, b) => b.lineIdx - a.lineIdx);
+
+    // Track total removed lines per parent (for same-parent index adjustment)
+    const removedPerParent = new Map(); // parentNode.id → total removed lines before target
+
+    // Remove all source items from their parent bodies
+    for (const r of resolved) {
+      const srcLines = (r.parentNode.body || '').split('\n');
+      srcLines.splice(r.lineIdx, r.lineCount);
+      while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
+      r.parentNode.body = srcLines.join('\n');
+      // Track how many lines were removed from each parent node
+      if (!removedPerParent.has(r.parentNode.id)) removedPerParent.set(r.parentNode.id, 0);
+      removedPerParent.set(r.parentNode.id, removedPerParent.get(r.parentNode.id) + r.lineCount);
+    }
+
+    // Collect all reformatted lines in original order (reversed resolved is ascending)
+    const allReformattedLines = [];
+    for (const r of resolved.slice().reverse()) {
+      allReformattedLines.push(...reformatBodyLines(r.movedLines, r.srcIndent, destIndent));
+    }
+
+    // Determine the target node's updated line index (after removals from same parent)
+    const targetParentRemovedCount = result.type === 'body-item'
+      ? (removedPerParent.get(result.targetNode.id) || 0)
+      : 0;
+
+    // Insert all moved lines at destination
+    if (result.type === 'body-item') {
+      // Re-read target item's lineIdx from updated body
+      const updatedTargetTree = getBodyItemTree(result.targetNode.body);
+      // Find target item by text and original position heuristic (use text match)
+      let updatedTargetItem = null;
+      const origIdx = result.targetItem.lineIdx;
+      // Adjust original index for removals from the same parent
+      const adjustedIdx = origIdx - targetParentRemovedCount;
+      // Search for the item at adjusted index or by text
+      const flatItems = getBodyItems(result.targetNode.body);
+      updatedTargetItem = flatItems.find(i => i.lineIdx === adjustedIdx) ||
+                          flatItems.find(i => i.text === result.targetItem.text);
+      if (!updatedTargetItem) {
+        // Fallback: append to end
         const tgtLines = (result.targetNode.body || '').split('\n');
+        const allItems2 = getBodyItems(result.targetNode.body);
+        const insertAt2 = allItems2.length > 0 ? allItems2[allItems2.length - 1].lineIdx + 1 : tgtLines.length;
+        tgtLines.splice(insertAt2, 0, ...allReformattedLines);
+        result.targetNode.body = tgtLines.join('\n');
+      } else {
+        const tgtLines = (result.targetNode.body || '').split('\n');
+        const updatedLastLine = bodyItemLastLineIdx(updatedTargetItem);
         let insertAt;
         if (result.position === 'inside') {
-          // Insert as first child: right after the target item line itself
-          insertAt = result.targetItem.lineIdx + 1;
+          insertAt = updatedTargetItem.lineIdx + 1;
         } else {
-          insertAt = result.position === 'after'
-            ? bodyItemLastLineIdx(result.targetItem) + 1
-            : result.targetItem.lineIdx;
+          insertAt = result.position === 'after' ? updatedLastLine + 1 : updatedTargetItem.lineIdx;
         }
-        tgtLines.splice(insertAt, 0, ...reformattedLines);
-        result.targetNode.body = tgtLines.join('\n');
-      } else {
-        const tgtAllItems = getBodyItems(result.targetNode.body);
-        const tgtLines = (result.targetNode.body || '').split('\n');
-        const insertAt = tgtAllItems.length > 0
-          ? tgtAllItems[tgtAllItems.length - 1].lineIdx + 1
-          : tgtLines.length;
-        tgtLines.splice(insertAt, 0, ...reformattedLines);
+        tgtLines.splice(Math.max(0, insertAt), 0, ...allReformattedLines);
         result.targetNode.body = tgtLines.join('\n');
       }
+    } else {
+      // Drop onto heading node: append at end of body
+      const tgtAllItems = getBodyItems(result.targetNode.body);
+      const tgtLines = (result.targetNode.body || '').split('\n');
+      const insertAt = tgtAllItems.length > 0
+        ? tgtAllItems[tgtAllItems.length - 1].lineIdx + 1
+        : tgtLines.length;
+      tgtLines.splice(insertAt, 0, ...allReformattedLines);
+      result.targetNode.body = tgtLines.join('\n');
+    }
+
+    // Post edits: collect all affected nodes and send messages
+    const affectedNodes = new Set();
+    for (const r of resolved) affectedNodes.add(r.parentNode.id);
+    affectedNodes.add(result.targetNode.id);
+
+    // Build a set of all modified nodes
+    const allNodes = new Map(); // id -> node
+    for (const r of resolved) allNodes.set(r.parentNode.id, r.parentNode);
+    allNodes.set(result.targetNode.id, result.targetNode);
+
+    if (affectedNodes.size === 1 && result.type === 'body-item' && result.targetNode.id === ds.parentNode.id) {
+      // Single-parent edit
+      vscode.postMessage({ type: 'editBody', id: result.targetNode.id, body: result.targetNode.body });
+    } else {
+      // Multiple parents changed — do a structural edit
       postStructuralEdit();
     }
 
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
     render();
   }
 
@@ -1703,7 +1765,10 @@
     if (!clipboard) return;
 
     if (clipboard.type === 'body' && selectedBodyItemData) {
+      const cutParentId = selectedBodyItemData.parentNode.id;
       deleteBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx);
+      // After cut, select the parent heading node so paste has a valid target
+      selectedId = cutParentId;
     } else if (clipboard.type === 'body-multi') {
       // Delete all selected body items (high-to-low lineIdx to avoid index shift)
       const keysToDelete = new Set([
@@ -1715,6 +1780,7 @@
         const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
         if (data) toDelete.push(data);
       }
+      const cutParentId = toDelete.length > 0 ? toDelete[0].parentNode.id : null;
       toDelete.sort((a, b) => b.lineIdx - a.lineIdx);
       pushUndo();
       for (const data of toDelete) {
@@ -1724,6 +1790,8 @@
       selectedBodyItemData = null;
       selectedBodyItemKeys.clear();
       selectedBodyItemsData.clear();
+      // After cut, select the parent heading node so paste has a valid target
+      if (cutParentId) selectedId = cutParentId;
       render();
     } else if (clipboard.type === 'heading' && selectedId && root) {
       const node = findById(root, selectedId);
@@ -1733,18 +1801,15 @@
       const allIds = new Set([...selectedIds, ...(selectedId ? [selectedId] : [])]);
       const nodes = [...allIds].map(id => findById(root, id)).filter(n => n && n.id !== root.id);
       if (nodes.length > 0) {
-        const hasChildren = nodes.some(n => n.children.length > 0);
-        if (!hasChildren || confirm(`${nodes.length}個のノード（一部に子ノードあり）を削除しますか？`)) {
-          pushUndo();
-          for (const node of nodes) {
-            const parent = findParent(root, node);
-            if (parent) parent.children = parent.children.filter(c => c.id !== node.id);
-          }
-          selectedId = null;
-          selectedIds.clear();
-          postStructuralEdit();
-          render();
+        pushUndo();
+        for (const node of nodes) {
+          const parent = findParent(root, node);
+          if (parent) parent.children = parent.children.filter(c => c.id !== node.id);
         }
+        selectedId = null;
+        selectedIds.clear();
+        postStructuralEdit();
+        render();
       }
     }
   }
@@ -1780,22 +1845,22 @@
         render();
       }
     } else if (clipboard.type === 'body-multi') {
-      // Paste multiple body items: paste all into selected heading node as top-level items
-      if (selectedId && root) {
-        const node = findById(root, selectedId);
-        if (!node) return;
-        pushUndo();
-        for (const item of clipboard.items) {
-          const pasteLines = reformatBodyLines(item.lines, item.indent, 0);
-          const allItems = getBodyItems(node.body);
-          const lines = (node.body || '').split('\n');
-          const insertAt = allItems.length > 0 ? allItems[allItems.length - 1].lineIdx + 1 : lines.length;
-          lines.splice(insertAt, 0, ...pasteLines);
-          node.body = lines.join('\n');
-        }
-        vscode.postMessage({ type: 'editBody', id: node.id, body: node.body });
-        render();
+      // Paste multiple body items into the selected node (heading or body item's parent)
+      const targetNode = selectedBodyItemData
+        ? selectedBodyItemData.parentNode
+        : (selectedId && root ? findById(root, selectedId) : null);
+      if (!targetNode) return;
+      pushUndo();
+      for (const item of clipboard.items) {
+        const pasteLines = reformatBodyLines(item.lines, item.indent, 0);
+        const allItems = getBodyItems(targetNode.body);
+        const lines = (targetNode.body || '').split('\n');
+        const insertAt = allItems.length > 0 ? allItems[allItems.length - 1].lineIdx + 1 : lines.length;
+        lines.splice(insertAt, 0, ...pasteLines);
+        targetNode.body = lines.join('\n');
       }
+      vscode.postMessage({ type: 'editBody', id: targetNode.id, body: targetNode.body });
+      render();
     } else if (clipboard.type === 'heading') {
       // When multi-selecting, use selectedId (primary selection) as paste target.
       // Fall back to the last entry in selectedIds when selectedId is somehow unset.
