@@ -1288,11 +1288,13 @@
 
   function onDragEnd(e) {
     const ds = dragState;
+    // Resolve drop target before clearing dragState so getDropTarget can
+    // exclude all dragged nodes (not just ds.node) from candidates.
+    const result = getDropTarget(e, ds.node);
     dragState = null;
     ds.ghost.remove();
     clearDropFeedback();
     if (!ds.moved) return;
-    const result = getDropTarget(e, ds.node);
     if (result && result.position !== 'h6-blocked') {
       if (ds.nodes && ds.nodes.length > 1) {
         performMultiDrop(ds.nodes, result.targetNode, result.position);
@@ -1795,8 +1797,11 @@
         render();
       }
     } else if (clipboard.type === 'heading') {
-      if (!selectedId || !root) return;
-      const node = findById(root, selectedId);
+      // When multi-selecting, use selectedId (primary selection) as paste target.
+      // Fall back to the last entry in selectedIds when selectedId is somehow unset.
+      const pasteTargetId = selectedId || (selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : null);
+      if (!pasteTargetId || !root) return;
+      const node = findById(root, pasteTargetId);
       if (!node) return;
       // Paste as child of selected node (not sibling)
       if (node.level >= 6) return; // at H6 limit, cannot add child heading
@@ -1817,8 +1822,10 @@
       postStructuralEdit();
       render();
     } else if (clipboard.type === 'heading-multi') {
-      if (!selectedId || !root) return;
-      const node = findById(root, selectedId);
+      // Use selectedId as paste target; fall back to last entry in selectedIds.
+      const pasteTargetId = selectedId || (selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : null);
+      if (!pasteTargetId || !root) return;
+      const node = findById(root, pasteTargetId);
       if (!node) return;
       // Paste multiple nodes as children of selected node
       if (node.level >= 6) return;
