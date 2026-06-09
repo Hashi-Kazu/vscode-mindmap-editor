@@ -1590,8 +1590,8 @@
     // Sort by lineIdx descending to avoid index shifts when removing from source
     resolved.sort((a, b) => b.lineIdx - a.lineIdx);
 
-    // Track total removed lines per parent (for same-parent index adjustment)
-    const removedPerParent = new Map(); // parentNode.id → total removed lines before target
+    // Save original lineIdx of drop target before any deletions (for same-parent adjustment)
+    const origTargetLineIdx = result.type === 'body-item' ? result.targetItem.lineIdx : -1;
 
     // Remove all source items from their parent bodies
     for (const r of resolved) {
@@ -1599,9 +1599,6 @@
       srcLines.splice(r.lineIdx, r.lineCount);
       while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
       r.parentNode.body = srcLines.join('\n');
-      // Track how many lines were removed from each parent node
-      if (!removedPerParent.has(r.parentNode.id)) removedPerParent.set(r.parentNode.id, 0);
-      removedPerParent.set(r.parentNode.id, removedPerParent.get(r.parentNode.id) + r.lineCount);
     }
 
     // Collect all reformatted lines in original order (reversed resolved is ascending)
@@ -1610,24 +1607,25 @@
       allReformattedLines.push(...reformatBodyLines(r.movedLines, r.srcIndent, destIndent));
     }
 
-    // Determine the target node's updated line index (after removals from same parent)
-    const targetParentRemovedCount = result.type === 'body-item'
-      ? (removedPerParent.get(result.targetNode.id) || 0)
-      : 0;
+    // Compute lines removed from the target node that were BEFORE the target item's original lineIdx.
+    // Only lines before origTargetLineIdx shift the target's position downward.
+    let targetParentRemovedCount = 0;
+    if (result.type === 'body-item') {
+      for (const r of resolved) {
+        if (r.parentNode.id === result.targetNode.id && r.lineIdx < origTargetLineIdx) {
+          targetParentRemovedCount += r.lineCount;
+        }
+      }
+    }
 
     // Insert all moved lines at destination
     if (result.type === 'body-item') {
-      // Re-read target item's lineIdx from updated body
-      const updatedTargetTree = getBodyItemTree(result.targetNode.body);
-      // Find target item by text and original position heuristic (use text match)
-      let updatedTargetItem = null;
-      const origIdx = result.targetItem.lineIdx;
-      // Adjust original index for removals from the same parent
-      const adjustedIdx = origIdx - targetParentRemovedCount;
+      // Compute adjusted lineIdx of target item after prior deletions
+      const adjustedIdx = origTargetLineIdx - targetParentRemovedCount;
       // Search for the item at adjusted index or by text
       const flatItems = getBodyItems(result.targetNode.body);
-      updatedTargetItem = flatItems.find(i => i.lineIdx === adjustedIdx) ||
-                          flatItems.find(i => i.text === result.targetItem.text);
+      let updatedTargetItem = flatItems.find(i => i.lineIdx === adjustedIdx) ||
+                              flatItems.find(i => i.text === result.targetItem.text);
       if (!updatedTargetItem) {
         // Fallback: append to end
         const tgtLines = (result.targetNode.body || '').split('\n');
@@ -1845,19 +1843,36 @@
         render();
       }
     } else if (clipboard.type === 'body-multi') {
-      // Paste multiple body items into the selected node (heading or body item's parent)
+      // Paste multiple body items after the selected body item (as siblings) or at end of node
       const targetNode = selectedBodyItemData
         ? selectedBodyItemData.parentNode
         : (selectedId && root ? findById(root, selectedId) : null);
       if (!targetNode) return;
       pushUndo();
-      for (const item of clipboard.items) {
-        const pasteLines = reformatBodyLines(item.lines, item.indent, 0);
-        const allItems = getBodyItems(targetNode.body);
+
+      // Determine base insertAt and destIndent (same logic as single-body paste)
+      let insertAt;
+      let destIndent;
+      if (selectedBodyItemData) {
+        const selTree = getBodyItemTree(targetNode.body);
+        const selItem = findBodyItemByLineIdx(selTree, selectedBodyItemData.lineIdx);
+        const selLastLine = selItem ? bodyItemLastLineIdx(selItem) : selectedBodyItemData.lineIdx;
+        insertAt = selLastLine + 1;
+        destIndent = selectedBodyItemData.indent;
+      } else {
+        const allBodyItems = getBodyItems(targetNode.body);
         const lines = (targetNode.body || '').split('\n');
-        const insertAt = allItems.length > 0 ? allItems[allItems.length - 1].lineIdx + 1 : lines.length;
+        insertAt = allBodyItems.length > 0 ? allBodyItems[allBodyItems.length - 1].lineIdx + 1 : lines.length;
+        destIndent = 0;
+      }
+
+      // Paste all items in order, advancing insertAt after each
+      for (const item of clipboard.items) {
+        const pasteLines = reformatBodyLines(item.lines, item.indent, destIndent);
+        const lines = (targetNode.body || '').split('\n');
         lines.splice(insertAt, 0, ...pasteLines);
         targetNode.body = lines.join('\n');
+        insertAt += pasteLines.length;
       }
       vscode.postMessage({ type: 'editBody', id: targetNode.id, body: targetNode.body });
       render();
