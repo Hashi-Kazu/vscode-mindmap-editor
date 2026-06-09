@@ -48,7 +48,6 @@ jobs:
            - `CLAUDE.md` はコード構成・規約の参照用として読み、エージェント定義（`.claude/agents/`）に従って実装すること
            - `dist/` は編集しない（ビルド出力のため）
            - コメントは WHY が非自明な場合のみ書く
-           - ビルド（`npm run build` / `npm run package`）は実行しない
          claude_args: |
            --max-turns 50
            --dangerously-skip-permissions
