@@ -24,6 +24,7 @@
 
   let root = null;
   let selectedId = null;
+  let selectedIds = new Set(); // multi-selection: Set of node ids
   let editingId = null;
   let transform = { x: 80, y: 0, scale: 1 };
   let contextTarget = null;
@@ -32,13 +33,15 @@
   let _pendingBodyEdit = null;     // { parentId, lineIdx }
   let selectedBodyItemKey = null;  // `${parentNodeId}:${lineIdx}`
   let selectedBodyItemData = null; // { parentNode, lineIdx, indent }
+  let selectedBodyItemKeys = new Set(); // multi-selection for body items: Set of keys
+  let selectedBodyItemsData = new Map(); // key -> { parentNode, lineIdx, indent }
 
   let _lastNodeCount = 0;
   let dragState = null;
   let bodyDragState = null;
   let panState = null;
   let undoStack = [];
-  let clipboard = null; // { type: 'heading'|'body', lines?: string[], indent?: number, node?: object }
+  let clipboard = null; // { type: 'heading'|'body', lines?: string[], indent?: number, node?: object, nodes?: object[] }
 
   // Body item collapse state — persists across renders (session-only)
   // key: `${nodeId}:${lineIdx}`
@@ -324,7 +327,7 @@
 
     const col = LEVEL_COLORS[Math.min(node.level, LEVEL_COLORS.length - 1)];
     div.style.setProperty('--node-color', col);
-    if (node.id === selectedId) div.classList.add('selected');
+    if (node.id === selectedId || selectedIds.has(node.id)) div.classList.add('selected');
     if (node.id === editingId)  div.classList.add('editing');
 
     if (node.children.length || getBodyItems(node.body).length) {
@@ -357,11 +360,37 @@
     div.addEventListener('click', (e) => {
       e.stopPropagation();
       hideContextMenu();
-      document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
-      div.classList.add('selected');
-      selectedId = node.id;
-      selectedBodyItemKey = null;
-      selectedBodyItemData = null;
+      if (e.ctrlKey || e.metaKey) {
+        // Multi-select: toggle this node in selection
+        if (selectedIds.has(node.id)) {
+          selectedIds.delete(node.id);
+          div.classList.remove('selected');
+          if (selectedId === node.id) {
+            // Move primary selection to another selected node or null
+            selectedId = selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : null;
+          }
+        } else {
+          // Add to multi-select; include current primary selection
+          if (selectedId) selectedIds.add(selectedId);
+          selectedIds.add(node.id);
+          selectedId = node.id;
+          selectedBodyItemKey = null;
+          selectedBodyItemData = null;
+          selectedBodyItemKeys.clear();
+          selectedBodyItemsData.clear();
+          div.classList.add('selected');
+        }
+      } else {
+        // Single select — clear multi-selection
+        document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
+        selectedIds.clear();
+        selectedBodyItemKeys.clear();
+        selectedBodyItemsData.clear();
+        div.classList.add('selected');
+        selectedId = node.id;
+        selectedBodyItemKey = null;
+        selectedBodyItemData = null;
+      }
     });
     div.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -412,7 +441,7 @@
     div.style.width  = NODE_W + 'px';
     div.style.height = BODY_H + 'px';
 
-    if (key === selectedBodyItemKey) div.classList.add('selected');
+    if (key === selectedBodyItemKey || selectedBodyItemKeys.has(key)) div.classList.add('selected');
 
     // Collapse toggle for body items that have children
     if (item.children.length) {
@@ -450,11 +479,41 @@
     div.addEventListener('click', (e) => {
       e.stopPropagation();
       hideContextMenu();
-      document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
-      div.classList.add('selected');
-      selectedId = null;
-      selectedBodyItemKey = key;
-      selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+      if (e.ctrlKey || e.metaKey) {
+        // Multi-select body items
+        if (selectedBodyItemKeys.has(key)) {
+          selectedBodyItemKeys.delete(key);
+          selectedBodyItemsData.delete(key);
+          div.classList.remove('selected');
+          if (selectedBodyItemKey === key) {
+            selectedBodyItemKey = selectedBodyItemKeys.size > 0 ? [...selectedBodyItemKeys][selectedBodyItemKeys.size - 1] : null;
+            selectedBodyItemData = selectedBodyItemKey ? selectedBodyItemsData.get(selectedBodyItemKey) : null;
+          }
+        } else {
+          // Add current primary to multi-select
+          if (selectedBodyItemKey) {
+            selectedBodyItemKeys.add(selectedBodyItemKey);
+            selectedBodyItemsData.set(selectedBodyItemKey, selectedBodyItemData);
+          }
+          selectedBodyItemKeys.add(key);
+          selectedBodyItemsData.set(key, { parentNode, lineIdx: item.lineIdx, indent: item.indent });
+          selectedBodyItemKey = key;
+          selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+          selectedId = null;
+          selectedIds.clear();
+          div.classList.add('selected');
+        }
+      } else {
+        // Single select
+        document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
+        selectedIds.clear();
+        selectedBodyItemKeys.clear();
+        selectedBodyItemsData.clear();
+        div.classList.add('selected');
+        selectedId = null;
+        selectedBodyItemKey = key;
+        selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+      }
     });
     div.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -652,13 +711,61 @@
     if (editingId) return;
 
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); performCopy(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'x') { e.preventDefault(); performCut(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); performPaste(); return; }
 
     if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'f' || e.key === 'F')) { fitView(); return; }
 
     // Delete
     if (e.key === 'Delete') {
-      if (selectedBodyItemData) { deleteBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx); return; }
+      if (selectedBodyItemData || selectedBodyItemKeys.size > 0) {
+        // Multi-body delete
+        const keysToDelete = new Set([
+          ...(selectedBodyItemKey ? [selectedBodyItemKey] : []),
+          ...selectedBodyItemKeys
+        ]);
+        if (keysToDelete.size > 1) {
+          // Collect and sort by lineIdx descending to avoid index shift issues
+          const toDelete = [];
+          for (const k of keysToDelete) {
+            const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
+            if (data) toDelete.push(data);
+          }
+          toDelete.sort((a, b) => b.lineIdx - a.lineIdx);
+          pushUndo();
+          for (const data of toDelete) {
+            deleteBodyItemNoUndo(data.parentNode, data.lineIdx);
+          }
+          selectedBodyItemKey = null;
+          selectedBodyItemData = null;
+          selectedBodyItemKeys.clear();
+          selectedBodyItemsData.clear();
+          render();
+        } else if (selectedBodyItemData) {
+          deleteBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx);
+        }
+        return;
+      }
+      if (selectedIds.size > 1) {
+        // Multi-node delete
+        const allIds = new Set([...selectedIds, ...(selectedId ? [selectedId] : [])]);
+        const nodes = [...allIds].map(id => findById(root, id)).filter(n => n && n.id !== root.id);
+        if (nodes.length === 0) return;
+        const hasChildren = nodes.some(n => n.children.length > 0);
+        if (hasChildren) {
+          if (!confirm(`${nodes.length}個のノード（一部に子ノードあり）を削除しますか？`)) return;
+        }
+        pushUndo();
+        for (const node of nodes) {
+          const parent = findParent(root, node);
+          if (parent) parent.children = parent.children.filter(c => c.id !== node.id);
+        }
+        selectedId = null;
+        selectedIds.clear();
+        postStructuralEdit();
+        render();
+        return;
+      }
       if (selectedId) { const node = findById(root, selectedId); if (node) deleteNode(node); return; }
     }
 
@@ -765,12 +872,15 @@
         return;
       }
       if (e.key === 'Escape') {
-        if (selectedBodyItemKey) {
+        if (selectedBodyItemKey || selectedBodyItemKeys.size > 0) {
           document.querySelectorAll('.body-node.selected').forEach(el => el.classList.remove('selected'));
           selectedBodyItemKey = null;
           selectedBodyItemData = null;
-        } else if (selectedId) {
+          selectedBodyItemKeys.clear();
+          selectedBodyItemsData.clear();
+        } else if (selectedId || selectedIds.size > 0) {
           selectedId = null;
+          selectedIds.clear();
           document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
         }
         return;
@@ -939,6 +1049,21 @@
     render();
   }
 
+  function deleteBodyItemNoUndo(parentNode, lineIdx) {
+    const tree = getBodyItemTree(parentNode.body);
+    const item = findBodyItemByLineIdx(tree, lineIdx);
+    if (!item) return;
+    const lastLine = bodyItemLastLineIdx(item);
+    const lineCount = lastLine - lineIdx + 1;
+    const lines = (parentNode.body || '').split('\n');
+    if (lineIdx < 0 || lineIdx >= lines.length) return;
+    collapsedBodyItems.delete(`${parentNode.id}:${lineIdx}`);
+    lines.splice(lineIdx, lineCount);
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+    parentNode.body = lines.join('\n');
+    vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+  }
+
   function deleteBodyItem(parentNode, lineIdx) {
     const tree = getBodyItemTree(parentNode.body);
     const item = findBodyItemByLineIdx(tree, lineIdx);
@@ -1035,6 +1160,9 @@
     contextTarget = node;
     contextBodyItem = null;
     selectedId = node.id;
+    selectedIds.clear();
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
 
     const parent = root ? findParent(root, node) : null;
     const idx = parent ? parent.children.indexOf(node) : -1;
@@ -1064,6 +1192,9 @@
     contextBodyItem = { parentNode, item, key };
     selectedBodyItemKey = key;
     selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+    selectedIds.clear();
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
 
     buildContextMenu([
       { action: 'body-add-sibling', label: '同階層に追加',              disabled: false },
@@ -1110,11 +1241,37 @@
     e.preventDefault(); e.stopPropagation();
     const ghost = document.createElement('div');
     ghost.className = 'drag-ghost';
-    ghost.textContent = node.text;
+
+    // Collect all nodes to drag (multi-select or single)
+    let dragNodes;
+    if (selectedIds.size > 1 && (selectedIds.has(node.id) || selectedId === node.id)) {
+      // Multi-drag: gather all selected nodes
+      const allSelected = new Set(selectedIds);
+      if (selectedId) allSelected.add(selectedId);
+      // Filter out root and nodes that are descendants of other selected nodes
+      dragNodes = [...allSelected]
+        .map(id => findById(root, id))
+        .filter(n => n && n.id !== root.id)
+        .filter(n => {
+          // Exclude if any other selected node is its ancestor
+          for (const id2 of allSelected) {
+            if (id2 !== n.id) {
+              const ancestor = findById(root, id2);
+              if (ancestor && isDescendant(ancestor, n) && ancestor.id !== n.id) return false;
+            }
+          }
+          return true;
+        });
+      ghost.textContent = dragNodes.length > 1 ? `${dragNodes.length}個のノード` : (dragNodes[0] ? dragNodes[0].text : node.text);
+    } else {
+      dragNodes = [node];
+      ghost.textContent = node.text;
+    }
+
     ghost.style.left = e.clientX + 'px';
     ghost.style.top  = e.clientY + 'px';
     document.body.appendChild(ghost);
-    dragState = { node, startX: e.clientX, startY: e.clientY, moved: false, ghost };
+    dragState = { node, nodes: dragNodes, startX: e.clientX, startY: e.clientY, moved: false, ghost };
   }
 
   function onDragMove(e) {
@@ -1135,7 +1292,13 @@
     clearDropFeedback();
     if (!ds.moved) return;
     const result = getDropTarget(e, ds.node);
-    if (result && result.position !== 'h6-blocked') performDrop(ds.node, result.targetNode, result.position);
+    if (result && result.position !== 'h6-blocked') {
+      if (ds.nodes && ds.nodes.length > 1) {
+        performMultiDrop(ds.nodes, result.targetNode, result.position);
+      } else {
+        performDrop(ds.node, result.targetNode, result.position);
+      }
+    }
     render();
   }
 
@@ -1172,14 +1335,19 @@
     const sx = (e.clientX - stageRect.left - transform.x) / transform.scale;
     const sy = (e.clientY - stageRect.top  - transform.y) / transform.scale;
     let best = null, bestDist = 40;
-    collectDropCandidates(root, draggedNode, sx, sy, bestDist, (result, dist) => {
+    // Use all dragged nodes if multi-drag
+    const draggedNodes = (dragState && dragState.nodes && dragState.nodes.length > 1)
+      ? dragState.nodes : [draggedNode];
+    collectDropCandidates(root, draggedNodes, sx, sy, bestDist, (result, dist) => {
       if (dist < bestDist) { bestDist = dist; best = result; }
     });
     return best;
   }
 
   function collectDropCandidates(node, dragged, sx, sy, tolerance, cb) {
-    if (node.id === dragged.id || isDescendant(dragged, node)) return;
+    // dragged can be a single node or an array of nodes
+    const draggedArr = Array.isArray(dragged) ? dragged : [dragged];
+    if (draggedArr.some(d => node.id === d.id || isDescendant(d, node))) return;
     const nx = node._x, ny = node._y, nw = NODE_W, nh = NODE_H;
     if (sx >= nx - tolerance && sx <= nx + nw + tolerance && sy >= ny - tolerance && sy <= ny + nh + tolerance) {
       const relY = sy - ny;
@@ -1188,6 +1356,42 @@
       cb({ targetNode: node, position: pos }, Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
     }
     if (!node.collapsed) node.children.forEach(c => collectDropCandidates(c, dragged, sx, sy, tolerance, cb));
+  }
+
+  // Drop multiple nodes at a target position
+  function performMultiDrop(nodes, targetNode, position) {
+    if (!root) return;
+    pushUndo();
+    // Remove all dragged nodes from their parents first
+    const removedNodes = [];
+    for (const draggedNode of nodes) {
+      const srcParent = findParent(root, draggedNode);
+      if (!srcParent) continue;
+      srcParent.children = srcParent.children.filter(c => c.id !== draggedNode.id);
+      removedNodes.push(draggedNode);
+    }
+    if (removedNodes.length === 0) return;
+
+    if (position === 'inside') {
+      for (const n of removedNodes) {
+        n.level = targetNode.level + 1;
+        updateChildLevels(n);
+        targetNode.children.push(n);
+      }
+      targetNode.collapsed = false;
+    } else {
+      const targetParent = findParent(root, targetNode);
+      if (!targetParent) return;
+      const baseIdx = targetParent.children.indexOf(targetNode);
+      const insertIdx = position === 'before' ? baseIdx : baseIdx + 1;
+      for (let i = 0; i < removedNodes.length; i++) {
+        const n = removedNodes[i];
+        n.level = targetNode.level;
+        updateChildLevels(n);
+        targetParent.children.splice(insertIdx + i, 0, n);
+      }
+    }
+    postStructuralEdit();
   }
 
   function performDrop(draggedNode, targetNode, position) {
@@ -1417,6 +1621,36 @@
   }
 
   function performCopy() {
+    // Multi-select heading nodes
+    const multiIds = selectedIds.size > 0 ? new Set([...selectedIds, ...(selectedId ? [selectedId] : [])]) : null;
+    if (multiIds && multiIds.size > 1 && !selectedBodyItemData) {
+      const nodes = [...multiIds].map(id => findById(root, id)).filter(Boolean);
+      if (nodes.length === 0) return;
+      clipboard = { type: 'heading-multi', nodes: nodes.map(cloneForUndo) };
+      return;
+    }
+
+    // Multi-select body items
+    const multiBodyKeys = selectedBodyItemKeys.size > 0
+      ? new Set([...selectedBodyItemKeys, ...(selectedBodyItemKey ? [selectedBodyItemKey] : [])])
+      : null;
+    if (multiBodyKeys && multiBodyKeys.size > 1) {
+      const items = [];
+      for (const k of multiBodyKeys) {
+        const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
+        if (!data) continue;
+        const tree = getBodyItemTree(data.parentNode.body);
+        const item = findBodyItemByLineIdx(tree, data.lineIdx);
+        if (!item) continue;
+        const lastLine = bodyItemLastLineIdx(item);
+        const lines = (data.parentNode.body || '').split('\n');
+        items.push({ lines: lines.slice(data.lineIdx, lastLine + 1), indent: item.indent, parentNodeId: data.parentNode.id });
+      }
+      if (items.length === 0) return;
+      clipboard = { type: 'body-multi', items };
+      return;
+    }
+
     if (selectedBodyItemData) {
       const { parentNode, lineIdx } = selectedBodyItemData;
       const tree = getBodyItemTree(parentNode.body);
@@ -1429,6 +1663,57 @@
       const node = findById(root, selectedId);
       if (!node) return;
       clipboard = { type: 'heading', node: cloneForUndo(node) };
+    }
+  }
+
+  function performCut() {
+    performCopy();
+    if (!clipboard) return;
+
+    if (clipboard.type === 'body' && selectedBodyItemData) {
+      deleteBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx);
+    } else if (clipboard.type === 'body-multi') {
+      // Delete all selected body items (high-to-low lineIdx to avoid index shift)
+      const keysToDelete = new Set([
+        ...(selectedBodyItemKey ? [selectedBodyItemKey] : []),
+        ...selectedBodyItemKeys
+      ]);
+      const toDelete = [];
+      for (const k of keysToDelete) {
+        const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
+        if (data) toDelete.push(data);
+      }
+      toDelete.sort((a, b) => b.lineIdx - a.lineIdx);
+      pushUndo();
+      for (const data of toDelete) {
+        deleteBodyItemNoUndo(data.parentNode, data.lineIdx);
+      }
+      selectedBodyItemKey = null;
+      selectedBodyItemData = null;
+      selectedBodyItemKeys.clear();
+      selectedBodyItemsData.clear();
+      render();
+    } else if (clipboard.type === 'heading' && selectedId && root) {
+      const node = findById(root, selectedId);
+      if (node) deleteNode(node);
+    } else if (clipboard.type === 'heading-multi') {
+      // Delete all selected nodes
+      const allIds = new Set([...selectedIds, ...(selectedId ? [selectedId] : [])]);
+      const nodes = [...allIds].map(id => findById(root, id)).filter(n => n && n.id !== root.id);
+      if (nodes.length > 0) {
+        const hasChildren = nodes.some(n => n.children.length > 0);
+        if (!hasChildren || confirm(`${nodes.length}個のノード（一部に子ノードあり）を削除しますか？`)) {
+          pushUndo();
+          for (const node of nodes) {
+            const parent = findParent(root, node);
+            if (parent) parent.children = parent.children.filter(c => c.id !== node.id);
+          }
+          selectedId = null;
+          selectedIds.clear();
+          postStructuralEdit();
+          render();
+        }
+      }
     }
   }
 
@@ -1461,23 +1746,65 @@
         vscode.postMessage({ type: 'editBody', id: node.id, body: node.body });
         render();
       }
+    } else if (clipboard.type === 'body-multi') {
+      // Paste multiple body items: paste all into selected heading node as top-level items
+      if (selectedId && root) {
+        const node = findById(root, selectedId);
+        if (!node) return;
+        pushUndo();
+        for (const item of clipboard.items) {
+          const pasteLines = reformatBodyLines(item.lines, item.indent, 0);
+          const allItems = getBodyItems(node.body);
+          const lines = (node.body || '').split('\n');
+          const insertAt = allItems.length > 0 ? allItems[allItems.length - 1].lineIdx + 1 : lines.length;
+          lines.splice(insertAt, 0, ...pasteLines);
+          node.body = lines.join('\n');
+        }
+        vscode.postMessage({ type: 'editBody', id: node.id, body: node.body });
+        render();
+      }
     } else if (clipboard.type === 'heading') {
       if (!selectedId || !root) return;
       const node = findById(root, selectedId);
       if (!node) return;
-      const parent = findParent(root, node);
-      if (!parent) return;
+      // Paste as child of selected node (not sibling)
+      if (node.level >= 6) return; // at H6 limit, cannot add child heading
       const cloned = cloneWithNewIds(clipboard.node);
-      const levelDelta = node.level - cloned.level;
+      // Adjust levels relative to child depth
+      const targetChildLevel = node.level + 1;
+      const levelDelta = targetChildLevel - cloned.level;
       function adjustLevels(n) {
         n.level = Math.max(1, Math.min(6, n.level + levelDelta));
         n.children.forEach(adjustLevels);
       }
       adjustLevels(cloned);
-      const idx = parent.children.indexOf(node);
       pushUndo();
-      parent.children.splice(idx + 1, 0, cloned);
+      node.children.push(cloned);
+      node.collapsed = false;
       selectedId = cloned.id;
+      selectedIds.clear();
+      postStructuralEdit();
+      render();
+    } else if (clipboard.type === 'heading-multi') {
+      if (!selectedId || !root) return;
+      const node = findById(root, selectedId);
+      if (!node) return;
+      // Paste multiple nodes as children of selected node
+      if (node.level >= 6) return;
+      pushUndo();
+      const targetChildLevel = node.level + 1;
+      for (const srcNode of clipboard.nodes) {
+        const cloned = cloneWithNewIds(srcNode);
+        const levelDelta = targetChildLevel - cloned.level;
+        function adjustLevelsMulti(n) {
+          n.level = Math.max(1, Math.min(6, n.level + levelDelta));
+          n.children.forEach(adjustLevelsMulti);
+        }
+        adjustLevelsMulti(cloned);
+        node.children.push(cloned);
+      }
+      node.collapsed = false;
+      selectedIds.clear();
       postStructuralEdit();
       render();
     }
@@ -1531,8 +1858,11 @@
     if (!undoStack.length) return;
     root = undoStack.pop();
     selectedId = null;
+    selectedIds.clear();
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
     render();
     vscode.postMessage({ type: 'structuralEdit', root });
   }
@@ -1563,8 +1893,11 @@
   function selectNode(node) {
     if (!node) return;
     selectedId = node.id;
+    selectedIds.clear();
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
     document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
     const el = document.querySelector(`.node[data-id="${node.id}"]`);
     if (el) el.classList.add('selected');
