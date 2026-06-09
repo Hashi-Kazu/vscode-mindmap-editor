@@ -1858,7 +1858,7 @@
         const selItem = findBodyItemByLineIdx(selTree, selectedBodyItemData.lineIdx);
         const selLastLine = selItem ? bodyItemLastLineIdx(selItem) : selectedBodyItemData.lineIdx;
         insertAt = selLastLine + 1;
-        destIndent = selectedBodyItemData.indent;
+        destIndent = selectedBodyItemData.indent + 2;
       } else {
         const allBodyItems = getBodyItems(targetNode.body);
         const lines = (targetNode.body || '').split('\n');
