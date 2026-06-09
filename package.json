@@ -9,6 +9,11 @@
     "url": "https://github.com/Hashi-Kazu/vscode-mindmap-editor"
   },
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#12121E",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -22,7 +27,10 @@
         "command": "mindmap.openMindMap",
         "title": "マインドマップとして開く",
         "category": "Mind Map",
-        "icon": "$(type-hierarchy)"
+        "icon": {
+          "light": "media/icon.png",
+          "dark": "media/icon.png"
+        }
       }
     ],
     "menus": {
