@@ -77,30 +77,3 @@ function buildFrontmatter(
   return newInner ? `---\n${newInner}\n---` : '';
 }
 
-/**
- * Build a flat map of { nodeId → body } from the original tree.
- * Used to restore body content after drag-and-drop (nodes keep their IDs).
- */
-export function buildBodyMapById(root: MindMapNode): Map<string, string> {
-  const map = new Map<string, string>();
-  collectBodies(root, map);
-  return map;
-}
-
-function collectBodies(node: MindMapNode, map: Map<string, string>): void {
-  map.set(node.id, node.body);
-  node.children.forEach(c => collectBodies(c, map));
-}
-
-/**
- * Walk the webview tree and fill in missing body values from the id→body map.
- */
-export function applyBodiesById(
-  node: MindMapNode,
-  bodyMap: Map<string, string>
-): void {
-  if (!node.body && bodyMap.has(node.id)) {
-    node.body = bodyMap.get(node.id)!;
-  }
-  node.children.forEach(c => applyBodiesById(c, bodyMap));
-}

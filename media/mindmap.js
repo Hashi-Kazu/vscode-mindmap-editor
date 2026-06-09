@@ -1013,14 +1013,6 @@
       case 'add-body':          { if (contextTarget) addBodyItem(contextTarget, null, 0); break; }
       case 'move-up':           { if (contextTarget) moveNode(contextTarget, -1); break; }
       case 'move-down':         { if (contextTarget) moveNode(contextTarget, 1); break; }
-      case 'to-body':           { if (contextTarget) convertNodeToBody(contextTarget); break; }
-      case 'body-to-node': {
-        if (!contextTarget) return;
-        const lines = (contextTarget.body || '').split('\n');
-        const idx = lines.findIndex(l => /^[\s]*-\s+/.test(l));
-        if (idx >= 0) convertBodyLineToNode(contextTarget, idx);
-        break;
-      }
       case 'delete':            { if (contextTarget) deleteNode(contextTarget); break; }
       case 'body-add-child': {
         if (!contextBodyItem) return;
@@ -1035,13 +1027,6 @@
         addBodyItem(contextBodyItem.parentNode, last, contextBodyItem.item.indent);
         break;
       }
-      case 'body-item-to-node': {
-        if (!contextBodyItem) break;
-        const { parentNode: bn, item: bi } = contextBodyItem;
-        if (bi.children.length > 0) break; // 子項目がある場合はノード化不可
-        convertBodyLineToNode(bn, bi.lineIdx);
-        break;
-      }
       case 'body-item-delete':  { if (contextBodyItem) deleteBodyItem(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
     }
   }
@@ -1053,7 +1038,6 @@
 
     const parent = root ? findParent(root, node) : null;
     const idx = parent ? parent.children.indexOf(node) : -1;
-    const hasListItem = !!node.body && /^[\s]*-\s+/m.test(node.body);
 
     buildContextMenu([
       { action: 'add-child',    label: '子ノードを追加',          disabled: node.level >= 6 },
@@ -1062,9 +1046,6 @@
       { divider: true },
       { action: 'move-up',      label: '↑ 上へ移動',            disabled: !parent || idx <= 0 },
       { action: 'move-down',    label: '↓ 下へ移動',            disabled: !parent || idx >= parent.children.length - 1 },
-      { divider: true },
-      { action: 'to-body',      label: '本文行に変換 (→ 本文)',  disabled: !parent },
-      { action: 'body-to-node', label: '先頭項目をノード化',      disabled: !hasListItem || node.level >= 6 },
       { divider: true },
       { action: 'delete',       label: '削除',                  danger: true },
     ]);
@@ -1087,8 +1068,6 @@
     buildContextMenu([
       { action: 'body-add-sibling', label: '同階層に追加',              disabled: false },
       { action: 'body-add-child',   label: '子項目を追加',              disabled: false },
-      { divider: true },
-      { action: 'body-item-to-node',label: '↑ ノード化 (→ 見出し)',    disabled: parentNode.level >= 6 || item.indent > 0 || item.children.length > 0 },
       { divider: true },
       { action: 'body-item-delete', label: '本文行を削除',              danger: true },
     ]);
@@ -1120,42 +1099,6 @@
     pushUndo();
     parent.children = parent.children.filter(c => c.id !== node.id);
     if (selectedId === node.id) selectedId = null;
-    postStructuralEdit();
-    render();
-  }
-
-  // ─── Conversion Operations ────────────────────────────────────────────────
-
-  function convertNodeToBody(node) {
-    if (!root) return;
-    const parent = findParent(root, node);
-    if (!parent) return;
-    pushUndo();
-    const newLine = `- [ ] ${node.text}`;
-    parent.body = (parent.body && parent.body.trim())
-      ? parent.body.trimEnd() + '\n' + newLine : newLine;
-    const idx = parent.children.indexOf(node);
-    const reparented = node.children.map(c => { c.level = node.level; updateChildLevels(c); return c; });
-    parent.children.splice(idx, 1, ...reparented);
-    selectedId = parent.id;
-    postStructuralEdit();
-    render();
-  }
-
-  function convertBodyLineToNode(parentNode, lineIdx) {
-    const lines = (parentNode.body || '').split('\n');
-    if (lineIdx < 0 || lineIdx >= lines.length || parentNode.level >= 6) return;
-    const m = lines[lineIdx].match(/^[\s]*-\s+(?:\[[ xX]\]\s+)?(.+)$/);
-    if (!m) return;
-    pushUndo();
-    const text = m[1].trim();
-    lines.splice(lineIdx, 1);
-    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
-    parentNode.body = lines.join('\n');
-    const newNode = makeNode(text, parentNode.level + 1);
-    parentNode.children.push(newNode);
-    parentNode.collapsed = false;
-    selectedId = newNode.id;
     postStructuralEdit();
     render();
   }
