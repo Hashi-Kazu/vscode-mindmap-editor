@@ -464,11 +464,6 @@
         toggleBodyItemCheckbox(parentNode, item.lineIdx, cb.checked);
       });
       div.appendChild(cb);
-    } else {
-      const bullet = document.createElement('span');
-      bullet.className = 'body-node-bullet';
-      bullet.textContent = '–';
-      div.appendChild(bullet);
     }
 
     const label = document.createElement('span');
