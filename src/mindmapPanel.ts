@@ -210,7 +210,8 @@ export class MindMapPanel {
           this.document.positionAt(this.document.getText().length)
         );
         edit.replace(this.document.uri, fullRange, newContent);
-        await vscode.workspace.applyEdit(edit);
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) return;
         await this.document.save();
         this.panel.webview.postMessage({ type: 'saved' });
       } finally {
