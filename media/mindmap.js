@@ -1417,7 +1417,7 @@
       targetNode.collapsed = false;
     } else {
       const targetParent = findParent(root, targetNode);
-      if (!targetParent) { sourceParent.children.push(draggedNode); return; }
+      if (!targetParent) { sourceParent.children.push(draggedNode); postStructuralEdit(); return; }
       draggedNode.level = targetNode.level;
       updateChildLevels(draggedNode);
       const idx = targetParent.children.indexOf(targetNode);
