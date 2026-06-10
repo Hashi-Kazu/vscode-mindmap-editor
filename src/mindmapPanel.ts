@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from './markdownParser';
 import { serializeToMarkdown } from './markdownSerializer';
-import { MindMapNode, DocumentState } from './types';
+import { MindMapNode } from './types';
 
 export class MindMapPanel {
   private static readonly panels = new Map<string, MindMapPanel>();
@@ -13,7 +13,10 @@ export class MindMapPanel {
   private disposables: vscode.Disposable[] = [];
 
   // Parsed state cache — kept in sync WITHOUT re-parsing after our own edits
-  private docState: DocumentState | null = null;
+  private lastPreamble = '';
+  private lastFrontmatter = '';
+  private lastRoot: MindMapNode | null = null;
+  private lastBodyItemCollapsePaths: string[] = [];
 
   // Guard against echo loops: skip onDidChangeTextDocument while we apply our own edit
   private applyingEdit = false;
@@ -89,32 +92,11 @@ export class MindMapPanel {
       doc.getText(),
       doc.uri.fsPath
     );
-    this.docState = { root, frontmatter, preamble, bodyItemCollapsePaths };
+    this.lastRoot = root;
+    this.lastFrontmatter = frontmatter;
+    this.lastPreamble = preamble;
+    this.lastBodyItemCollapsePaths = bodyItemCollapsePaths;
     this.panel.webview.postMessage({ type: 'update', root, bodyItemCollapsePaths });
-  }
-
-  // Serialize docState to Markdown and write it to the backing document.
-  private commitTree(): Promise<void> {
-    const state = this.docState!;
-    const collapsed = extractCollapsedPaths(state.root);
-    const newContent = serializeToMarkdown(
-      state.root,
-      state.frontmatter,
-      state.preamble,
-      collapsed,
-      state.bodyItemCollapsePaths
-    );
-    return this.applyDocumentEdit(newContent);
-  }
-
-  // Run fn with isOperating = true, ensuring the flag is cleared in all cases.
-  private async withOperating(fn: () => Promise<void>): Promise<void> {
-    this.isOperating = true;
-    try {
-      await fn();
-    } finally {
-      this.isOperating = false;
-    }
   }
 
   private async handleWebviewMessage(msg: {
@@ -136,52 +118,88 @@ export class MindMapPanel {
       }
 
       case 'structuralEdit': {
-        await this.withOperating(async () => {
-          if (!this.docState) return;
-          this.docState.root = msg.root as MindMapNode;
-          await this.commitTree();
-        });
+        this.isOperating = true;
+        try {
+          const webRoot = msg.root as MindMapNode;
+          this.lastRoot = webRoot;
+          const collapsed = extractCollapsedPaths(webRoot);
+          const newContent = serializeToMarkdown(
+            webRoot,
+            this.lastFrontmatter,
+            this.lastPreamble,
+            collapsed,
+            this.lastBodyItemCollapsePaths
+          );
+          await this.applyDocumentEdit(newContent);
+        } finally {
+          this.isOperating = false;
+        }
         // Re-sync: Markdown is authoritative — picks up any concurrent external edits.
         this.syncFromDocument(this.document);
         break;
       }
 
       case 'editBody': {
-        await this.withOperating(async () => {
+        this.isOperating = true;
+        try {
           const { id, body } = msg as { type: string; id: string; body: string };
-          if (!this.docState) return;
-          const node = findNodeById(this.docState.root, id);
-          if (!node) return;
+          if (!this.lastRoot) break;
+          const node = findNodeById(this.lastRoot, id);
+          if (!node) break;
           node.body = body;
-          await this.commitTree();
-        });
+          const collapsed = extractCollapsedPaths(this.lastRoot);
+          const newContent = serializeToMarkdown(
+            this.lastRoot,
+            this.lastFrontmatter,
+            this.lastPreamble,
+            collapsed,
+            this.lastBodyItemCollapsePaths
+          );
+          await this.applyDocumentEdit(newContent);
+        } finally {
+          this.isOperating = false;
+        }
         break;
       }
 
       case 'renameNode': {
-        await this.withOperating(async () => {
+        this.isOperating = true;
+        try {
           const { id, newText } = msg as { type: string; id: string; newText: string };
-          if (!this.docState) return;
-          const node = findNodeById(this.docState.root, id);
-          if (!node) return;
+          if (!this.lastRoot) break;
+          const node = findNodeById(this.lastRoot, id);
+          if (!node) break;
           node.text = newText;
-          await this.commitTree();
-        });
+          const collapsed = extractCollapsedPaths(this.lastRoot);
+          const newContent = serializeToMarkdown(
+            this.lastRoot,
+            this.lastFrontmatter,
+            this.lastPreamble,
+            collapsed,
+            this.lastBodyItemCollapsePaths
+          );
+          await this.applyDocumentEdit(newContent);
+        } finally {
+          this.isOperating = false;
+        }
         // Re-sync: ensures webview reflects the saved Markdown state.
         this.syncFromDocument(this.document);
         break;
       }
 
       case 'saveCollapseState': {
-        const { collapsedPaths } = msg as { type: string; collapsedPaths: string[] };
-        if (!this.docState) break;
-        applyCollapsedPaths(this.docState.root, collapsedPaths, '');
+        const { collapsedPaths } = msg as {
+          type: string;
+          collapsedPaths: string[];
+        };
+        if (!this.lastRoot) break;
+        applyCollapsedPaths(this.lastRoot, collapsedPaths, '');
         const newContent = serializeToMarkdown(
-          this.docState.root,
-          this.docState.frontmatter,
-          this.docState.preamble,
+          this.lastRoot,
+          this.lastFrontmatter,
+          this.lastPreamble,
           collapsedPaths,
-          this.docState.bodyItemCollapsePaths
+          this.lastBodyItemCollapsePaths
         );
         await this.applyDocumentEdit(newContent);
         break;
@@ -189,9 +207,17 @@ export class MindMapPanel {
 
       case 'saveBodyItemCollapseState': {
         const { paths } = msg as { type: string; paths: string[] };
-        if (!this.docState) break;
-        this.docState.bodyItemCollapsePaths = paths;
-        await this.commitTree();
+        this.lastBodyItemCollapsePaths = paths;
+        if (!this.lastRoot) break;
+        const collapsed = extractCollapsedPaths(this.lastRoot);
+        const newContent = serializeToMarkdown(
+          this.lastRoot,
+          this.lastFrontmatter,
+          this.lastPreamble,
+          collapsed,
+          paths
+        );
+        await this.applyDocumentEdit(newContent);
         break;
       }
     }

@@ -7,16 +7,9 @@ export interface MindMapNode {
   body: string;   // non-heading content lines after this heading
 }
 
-export interface DocumentState {
-  root: MindMapNode;
-  frontmatter: string;
-  preamble: string;
-  bodyItemCollapsePaths: string[];
-}
-
 // Messages: extension → webview
 export type ExtensionMessage =
-  | { type: 'update'; root: MindMapNode; bodyItemCollapsePaths: string[] };
+  | { type: 'update'; root: MindMapNode };
 
 // Messages: webview → extension
 export type WebviewMessage =
