@@ -6,15 +6,35 @@
 
   // ─── Constants ────────────────────────────────────────────────────────────
 
-  const NODE_W     = 260;
-  const NODE_H     = 46;
-  const BODY_H     = 30;    // body item node height
-  const BODY_V_GAP = 8;     // gap between body items (same level)
-  const H_SPACE    = 280;   // horizontal space between heading levels
-  const BODY_H_SPACE = NODE_W + 12; // 272px — must exceed NODE_W to prevent overlap
-  const V_GAP      = 16;    // vertical gap between heading siblings
-  const PAD        = 60;
-  const MAX_UNDO   = 50;
+  const NODE_MIN_W    = 100;
+  const NODE_MAX_W    = 400;
+  const BODY_MIN_W    = 80;
+  const BODY_MAX_W    = 360;
+  const NODE_H        = 46;
+  const BODY_H        = 42;    // body item node height (2-line capable)
+  const BODY_V_GAP    = 8;     // gap between body items (same level)
+  const H_GAP         = 20;    // gap: parent right edge → child left edge
+  const BODY_ITEM_GAP = 12;    // gap: body item right edge → nested child
+  const V_GAP         = 16;    // vertical gap between heading siblings
+  const PAD           = 60;
+  const MAX_UNDO      = 50;
+
+  // Text width measurement for dynamic node sizing
+  let _measureCtx = null;
+  function measureNodeW(text, isBody) {
+    if (!text) return isBody ? BODY_MIN_W : NODE_MIN_W;
+    if (!_measureCtx) {
+      _measureCtx = document.createElement('canvas').getContext('2d');
+    }
+    const fontSize = isBody ? 12 : 13;
+    _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
+    const tw = _measureCtx.measureText(text).width;
+    // overhead: padding + toggle btn + body-dot / checkbox
+    const pad = isBody ? 44 : 50;
+    const min = isBody ? BODY_MIN_W : NODE_MIN_W;
+    const max = isBody ? BODY_MAX_W : NODE_MAX_W;
+    return Math.max(min, Math.min(max, Math.ceil(tw) + pad));
+  }
 
   const LEVEL_COLORS = [
     '#569cd6','#569cd6','#4ec9b0','#dcdcaa','#ce9178','#9cdcfe','#c586c0',
@@ -109,12 +129,13 @@
   }
 
   function assignBodyItemPositions(item, x, topY) {
+    item._w = measureNodeW(item.text, true);
     item._x = x;
     item._y = topY + item._sh / 2 - BODY_H / 2;
     if (item.collapsed) return;
     let cy = topY;
     for (const child of item.children) {
-      assignBodyItemPositions(child, x + BODY_H_SPACE, cy);
+      assignBodyItemPositions(child, x + item._w + BODY_ITEM_GAP, cy);
       cy += child._sh + BODY_V_GAP;
     }
   }
@@ -153,6 +174,7 @@
   }
 
   function assignPositions(node, x, topY) {
+    node._w = measureNodeW(node.text, false);
     node._x = x;
     node._y = topY + node._sh / 2 - NODE_H / 2;
     if (node.collapsed) { node._bodyItems = []; return; }
@@ -162,15 +184,16 @@
     node._bodyItems = bodyTree; // store tree roots (with collapse state applied)
 
     let cy = topY;
+    const childX = x + node._w + H_GAP;
     // heading children first (top)
     for (const child of node.children) {
-      assignPositions(child, x + H_SPACE, cy);
+      assignPositions(child, childX, cy);
       cy += child._sh + V_GAP;
     }
     if (node.children.length > 0 && bodyTree.length > 0) cy += V_GAP - BODY_V_GAP;
     // body items below
     for (const item of bodyTree) {
-      assignBodyItemPositions(item, x + H_SPACE, cy);
+      assignBodyItemPositions(item, childX, cy);
       cy += item._sh + BODY_V_GAP;
     }
   }
@@ -184,8 +207,9 @@
   function addBodyItemBounds(items, b) {
     for (const item of items) {
       if (item._x !== undefined) {
+        const iw = item._w || BODY_MIN_W;
         if (item._x < b.minX) b.minX = item._x;
-        if (item._x + NODE_W > b.maxX) b.maxX = item._x + NODE_W;
+        if (item._x + iw > b.maxX) b.maxX = item._x + iw;
         if (item._y < b.minY) b.minY = item._y;
         if (item._y + BODY_H > b.maxY) b.maxY = item._y + BODY_H;
       }
@@ -194,7 +218,8 @@
   }
 
   function getBounds(node) {
-    const b = { minX: node._x, maxX: node._x + NODE_W, minY: node._y, maxY: node._y + NODE_H };
+    const nw = node._w || NODE_MIN_W;
+    const b = { minX: node._x, maxX: node._x + nw, minY: node._y, maxY: node._y + NODE_H };
     if (!node.collapsed) {
       if (node._bodyItems) addBodyItemBounds(node._bodyItems, b);
       for (const c of node.children) {
@@ -260,8 +285,8 @@
     for (const item of items) {
       if (item.collapsed || !item.children.length) continue;
       for (const child of item.children) {
-        const x1 = item._x + NODE_W, y1 = item._y + BODY_H / 2;
-        const x2 = child._x,          y2 = child._y + BODY_H / 2;
+        const x1 = item._x + (item._w || BODY_MIN_W), y1 = item._y + BODY_H / 2;
+        const x2 = child._x,                           y2 = child._y + BODY_H / 2;
         const cx = (x1 + x2) / 2;
         const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -283,8 +308,8 @@
     // Dashed connections: heading → body items
     if (node._bodyItems && node._bodyItems.length) {
       for (const item of node._bodyItems) {
-        const x1 = node._x + NODE_W, y1 = node._y + NODE_H / 2;
-        const x2 = item._x,          y2 = item._y + BODY_H / 2;
+        const x1 = node._x + (node._w || NODE_MIN_W), y1 = node._y + NODE_H / 2;
+        const x2 = item._x,                            y2 = item._y + BODY_H / 2;
         const cx = (x1 + x2) / 2;
         const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -301,8 +326,8 @@
 
     // Solid connections: heading → child headings
     for (const child of node.children) {
-      const x1 = node._x + NODE_W, y1 = node._y + NODE_H / 2;
-      const x2 = child._x,          y2 = child._y + NODE_H / 2;
+      const x1 = node._x + (node._w || NODE_MIN_W), y1 = node._y + NODE_H / 2;
+      const x2 = child._x,                           y2 = child._y + NODE_H / 2;
       const cx = (x1 + x2) / 2;
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -322,7 +347,7 @@
     div.dataset.level = node.level;
     div.style.left = node._x + 'px';
     div.style.top  = node._y + 'px';
-    div.style.width  = NODE_W + 'px';
+    div.style.width  = (node._w || NODE_MIN_W) + 'px';
     div.style.height = NODE_H + 'px';
 
     const col = LEVEL_COLORS[Math.min(node.level, LEVEL_COLORS.length - 1)];
@@ -355,7 +380,8 @@
 
     div.addEventListener('mouseenter', () => {
       const lbl = div.querySelector('.label');
-      div.title = (lbl && lbl.scrollWidth > lbl.clientWidth) ? node.text : '';
+      const overflow = lbl && (lbl.scrollHeight > lbl.clientHeight || lbl.scrollWidth > lbl.clientWidth);
+      div.title = overflow ? node.text : '';
     });
     div.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -448,7 +474,7 @@
     div.dataset.bodyKey = key;
     div.style.left   = item._x + 'px';
     div.style.top    = item._y + 'px';
-    div.style.width  = NODE_W + 'px';
+    div.style.width  = (item._w || BODY_MIN_W) + 'px';
     div.style.height = BODY_H + 'px';
 
     if (key === selectedBodyItemKey || selectedBodyItemKeys.has(key)) div.classList.add('selected');
@@ -528,6 +554,11 @@
     div.addEventListener('contextmenu', (e) => {
       e.preventDefault(); e.stopPropagation();
       showBodyItemContextMenu(e, parentNode, item, key);
+    });
+    div.addEventListener('mouseenter', () => {
+      const lbl = div.querySelector('.body-node-label');
+      const overflow = lbl && (lbl.scrollHeight > lbl.clientHeight || lbl.scrollWidth > lbl.clientWidth);
+      div.title = overflow ? item.text : '';
     });
     div.addEventListener('mousedown', (e) => {
       if (e.button === 0 && e.target.type !== 'checkbox' && e.detail < 2) beginBodyItemDrag(e, parentNode, item);
@@ -1329,7 +1360,7 @@
       dropIndicator.style.display = 'block';
       dropIndicator.style.left  = sx + 'px';
       dropIndicator.style.top   = (sy - 2) + 'px';
-      dropIndicator.style.width = (NODE_W * transform.scale) + 'px';
+      dropIndicator.style.width = ((targetNode._w || NODE_MIN_W) * transform.scale) + 'px';
     }
   }
 
@@ -1358,7 +1389,7 @@
     // dragged can be a single node or an array of nodes
     const draggedArr = Array.isArray(dragged) ? dragged : [dragged];
     if (draggedArr.some(d => node.id === d.id || isDescendant(d, node))) return;
-    const nx = node._x, ny = node._y, nw = NODE_W, nh = NODE_H;
+    const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = NODE_H;
     if (sx >= nx - tolerance && sx <= nx + nw + tolerance && sy >= ny - tolerance && sy <= ny + nh + tolerance) {
       const relY = sy - ny;
       let pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
@@ -1498,7 +1529,7 @@
         dropIndicator.style.display = 'block';
         dropIndicator.style.left  = sx + 'px';
         dropIndicator.style.top   = (sy - 2) + 'px';
-        dropIndicator.style.width = (NODE_W * transform.scale) + 'px';
+        dropIndicator.style.width = ((item._w || BODY_MIN_W) * transform.scale) + 'px';
       }
     } else if (result.type === 'heading') {
       const el = document.querySelector(`.node[data-id="${result.targetNode.id}"]`);
@@ -1528,7 +1559,7 @@
       // Skip the dragged item itself (match by owner + lineIdx)
       const isDragSrc = item._owner && item._owner.id === ds.parentNode.id && item.lineIdx === ds.lineIdx;
       if (!isDragSrc) {
-        const nx = item._x, ny = item._y, nw = NODE_W, nh = BODY_H;
+        const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = BODY_H;
         if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
@@ -1549,7 +1580,7 @@
       tagOwner(node._bodyItems, node);
       for (const item of node._bodyItems) {
         if (node.id === ds.parentNode.id && item.lineIdx === ds.lineIdx) continue;
-        const nx = item._x, ny = item._y, nw = NODE_W, nh = BODY_H;
+        const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = BODY_H;
         if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
@@ -1559,7 +1590,7 @@
         collectBodyDropFromItems(item.children, ds, sx, sy, cb);
       }
     }
-    const nx = node._x, ny = node._y, nw = NODE_W, nh = NODE_H;
+    const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = NODE_H;
     if (sx >= nx - 30 && sx <= nx + nw + 30 && sy >= ny - 30 && sy <= ny + nh + 30) {
       cb({ type: 'heading', targetNode: node },
          Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
@@ -2013,7 +2044,7 @@
     const rect = stage.getBoundingClientRect(), margin = 60;
     const sx = node._x * transform.scale + transform.x;
     const sy = node._y * transform.scale + transform.y;
-    const sw = NODE_W * transform.scale, sh = NODE_H * transform.scale;
+    const sw = (node._w || NODE_MIN_W) * transform.scale, sh = NODE_H * transform.scale;
     let changed = false;
     if (sx < margin)                        { transform.x += margin - sx;                    changed = true; }
     else if (sx + sw > rect.width - margin) { transform.x -= sx + sw - (rect.width - margin); changed = true; }
