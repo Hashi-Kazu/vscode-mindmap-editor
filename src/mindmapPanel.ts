@@ -122,15 +122,7 @@ export class MindMapPanel {
         try {
           const webRoot = msg.root as MindMapNode;
           this.lastRoot = webRoot;
-          const collapsed = extractCollapsedPaths(webRoot);
-          const newContent = serializeToMarkdown(
-            webRoot,
-            this.lastFrontmatter,
-            this.lastPreamble,
-            collapsed,
-            this.lastBodyItemCollapsePaths
-          );
-          await this.applyDocumentEdit(newContent);
+          await this.commitTree();
         } finally {
           this.isOperating = false;
         }
@@ -147,15 +139,7 @@ export class MindMapPanel {
           const node = findNodeById(this.lastRoot, id);
           if (!node) break;
           node.body = body;
-          const collapsed = extractCollapsedPaths(this.lastRoot);
-          const newContent = serializeToMarkdown(
-            this.lastRoot,
-            this.lastFrontmatter,
-            this.lastPreamble,
-            collapsed,
-            this.lastBodyItemCollapsePaths
-          );
-          await this.applyDocumentEdit(newContent);
+          await this.commitTree();
         } finally {
           this.isOperating = false;
         }
@@ -170,15 +154,7 @@ export class MindMapPanel {
           const node = findNodeById(this.lastRoot, id);
           if (!node) break;
           node.text = newText;
-          const collapsed = extractCollapsedPaths(this.lastRoot);
-          const newContent = serializeToMarkdown(
-            this.lastRoot,
-            this.lastFrontmatter,
-            this.lastPreamble,
-            collapsed,
-            this.lastBodyItemCollapsePaths
-          );
-          await this.applyDocumentEdit(newContent);
+          await this.commitTree();
         } finally {
           this.isOperating = false;
         }
@@ -194,33 +170,30 @@ export class MindMapPanel {
         };
         if (!this.lastRoot) break;
         applyCollapsedPaths(this.lastRoot, collapsedPaths, '');
-        const newContent = serializeToMarkdown(
-          this.lastRoot,
-          this.lastFrontmatter,
-          this.lastPreamble,
-          collapsedPaths,
-          this.lastBodyItemCollapsePaths
-        );
-        await this.applyDocumentEdit(newContent);
+        await this.commitTree(collapsedPaths);
         break;
       }
 
       case 'saveBodyItemCollapseState': {
         const { paths } = msg as { type: string; paths: string[] };
         this.lastBodyItemCollapsePaths = paths;
-        if (!this.lastRoot) break;
-        const collapsed = extractCollapsedPaths(this.lastRoot);
-        const newContent = serializeToMarkdown(
-          this.lastRoot,
-          this.lastFrontmatter,
-          this.lastPreamble,
-          collapsed,
-          paths
-        );
-        await this.applyDocumentEdit(newContent);
+        await this.commitTree();
         break;
       }
     }
+  }
+
+  private async commitTree(collapsedPaths?: string[]): Promise<void> {
+    if (!this.lastRoot) return;
+    const collapsed = collapsedPaths ?? extractCollapsedPaths(this.lastRoot);
+    const newContent = serializeToMarkdown(
+      this.lastRoot,
+      this.lastFrontmatter,
+      this.lastPreamble,
+      collapsed,
+      this.lastBodyItemCollapsePaths
+    );
+    await this.applyDocumentEdit(newContent);
   }
 
   private applyDocumentEdit(newContent: string): Promise<void> {
