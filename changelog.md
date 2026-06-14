@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.2] - 2026-06-14
+
+### Changed
+- バージョンを 2.3.1 → 2.3.2 にバンプ (#22)
+
 ## [2.2.11] - 2026-06-10
 
 ### Changed
