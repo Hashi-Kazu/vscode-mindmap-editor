@@ -20,6 +20,7 @@ jobs:
        with:
          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
          github_token: ${{ secrets.GITHUB_TOKEN }}
+         show_full_output: true
          prompt: |
            あなたは vscode-mindmap-editor（VS Code 拡張機能）の開発エージェントです。
 
