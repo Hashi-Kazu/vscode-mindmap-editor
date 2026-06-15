@@ -18,19 +18,25 @@
   const V_GAP         = 16;    // vertical gap between heading siblings
   const PAD           = 60;
   const MAX_UNDO      = 50;
+  // Width occupied by the collapse toggle (▼/▶) incl. its flex gap.
+  // Body items with children render this button, so their width must account for it.
+  const TOGGLE_W      = 19;
 
   // Text width measurement for dynamic node sizing
   let _measureCtx = null;
-  function measureNodeW(text, isBody) {
-    if (!text) return isBody ? BODY_MIN_W : NODE_MIN_W;
+  function measureNodeW(text, isBody, hasToggle) {
+    if (!text) {
+      const base = isBody ? BODY_MIN_W : NODE_MIN_W;
+      return base + (hasToggle ? TOGGLE_W : 0);
+    }
     if (!_measureCtx) {
       _measureCtx = document.createElement('canvas').getContext('2d');
     }
     const fontSize = isBody ? 12 : 13;
     _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
     const tw = _measureCtx.measureText(text).width;
-    // overhead: padding + toggle btn + body-dot / checkbox
-    const pad = isBody ? 44 : 50;
+    // overhead: padding + body-dot / checkbox (+ toggle btn when collapsible)
+    const pad = (isBody ? 44 : 50) + (hasToggle ? TOGGLE_W : 0);
     const min = isBody ? BODY_MIN_W : NODE_MIN_W;
     const max = isBody ? BODY_MAX_W : NODE_MAX_W;
     return Math.max(min, Math.min(max, Math.ceil(tw) + pad));
@@ -129,7 +135,7 @@
   }
 
   function assignBodyItemPositions(item, x, topY) {
-    item._w = measureNodeW(item.text, true);
+    item._w = measureNodeW(item.text, true, item.children.length > 0);
     item._x = x;
     item._y = topY + item._sh / 2 - BODY_H / 2;
     if (item.collapsed) return;
