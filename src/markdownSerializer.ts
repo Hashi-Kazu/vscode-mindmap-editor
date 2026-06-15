@@ -9,16 +9,25 @@ export function serializeToMarkdown(
 ): string {
   const parts: string[] = [];
 
+  // Collapse paths are stored on disk relative to the root (filename) so they
+  // survive a file rename. Strip the root prefix before writing to frontmatter.
+  const relCollapsed = collapsedPaths.map(p => stripRootPrefix(p, root.text));
+  const relBodyItem = bodyItemCollapsedPaths.map(p => stripBodyItemRootPrefix(p, root.text));
+
   // Build frontmatter with updated collapse state
-  const fm = buildFrontmatter(frontmatter, collapsedPaths, bodyItemCollapsedPaths);
+  const fm = buildFrontmatter(frontmatter, relCollapsed, relBodyItem);
   if (fm) {
     parts.push(fm);
     parts.push('');
   }
 
-  // Preamble (content before any heading)
-  if (preamble.trim()) {
-    parts.push(preamble);
+  // Preamble (content before any heading). The trailing blank line that
+  // separates it from the first heading is added below via a single ''
+  // separator, so trim any blank lines the parser may have retained to keep
+  // serialize→parse→serialize idempotent.
+  const trimmedPreamble = preamble.replace(/\n+$/, '');
+  if (trimmedPreamble.trim()) {
+    parts.push(trimmedPreamble);
     parts.push('');
   }
 
@@ -75,5 +84,23 @@ function buildFrontmatter(
 
   const newInner = [inner, collapseBlock, bodyCollapseBlock].filter(Boolean).join('\n');
   return newInner ? `---\n${newInner}\n---` : '';
+}
+
+/** Remove a leading "<root>/" segment from a slash-separated heading path. */
+function stripRootPrefix(p: string, rootText: string): string {
+  const prefix = `${rootText}/`;
+  return p.startsWith(prefix) ? p.slice(prefix.length) : p;
+}
+
+/**
+ * Body-item paths are "<headingPath>::<itemChain>". Only the headingPath part
+ * carries the root (filename) prefix, so strip it just from that segment.
+ */
+function stripBodyItemRootPrefix(p: string, rootText: string): string {
+  const sep = p.indexOf('::');
+  if (sep === -1) return stripRootPrefix(p, rootText);
+  const headingPath = p.slice(0, sep);
+  const rest = p.slice(sep);
+  return stripRootPrefix(headingPath, rootText) + rest;
 }
 

@@ -62,7 +62,9 @@
     "vscode:prepublish": "node esbuild.js --production",
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package"
+    "package": "vsce package",
+    "pretest": "node esbuild.test.js",
+    "test": "node --test \"dist-test/**/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

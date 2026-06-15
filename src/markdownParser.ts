@@ -32,7 +32,7 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
       collapsedPaths = parseCollapsePaths(frontmatter);
     }
   }
-  const bodyItemCollapsePaths = parseBodyItemCollapsePaths(frontmatter);
+  const bodyItemCollapsePathsRaw = parseBodyItemCollapsePaths(frontmatter);
 
   // Split body into sections: each section = { level, text, bodyLines }
   const sections: Section[] = [];
@@ -60,6 +60,15 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   const baseName = path.basename(filepath, path.extname(filepath));
   const root: MindMapNode = makeNode(baseName, 0, []);
 
+  // On-disk paths are stored relative to the root (filename) for rename safety,
+  // but the in-memory tree and the webview use filename-prefixed paths. Re-add
+  // the prefix to relative (new-format) paths. Old-format paths that already
+  // start with the filename are kept as-is, so existing files still resolve.
+  collapsedPaths = collapsedPaths.map(p => addRootPrefix(p, baseName));
+  const bodyItemCollapsePaths = bodyItemCollapsePathsRaw.map(p =>
+    addBodyItemRootPrefix(p, baseName)
+  );
+
   // Build tree using a stack
   const stack: MindMapNode[] = [root];
 
@@ -79,6 +88,25 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   applyCollapsedPaths(root, collapsedPaths, '');
 
   return { root, frontmatter, preamble, bodyItemCollapsePaths };
+}
+
+/**
+ * Re-add the root (filename) prefix to a relative heading path. A path that
+ * already starts with "<rootText>/" (old format) or equals "<rootText>" is
+ * returned unchanged, so both formats resolve against the prefixed tree.
+ */
+function addRootPrefix(p: string, rootText: string): string {
+  if (p === rootText || p.startsWith(`${rootText}/`)) return p;
+  return `${rootText}/${p}`;
+}
+
+/** addRootPrefix for the "<headingPath>::<itemChain>" body-item format. */
+function addBodyItemRootPrefix(p: string, rootText: string): string {
+  const sep = p.indexOf('::');
+  if (sep === -1) return addRootPrefix(p, rootText);
+  const headingPath = p.slice(0, sep);
+  const rest = p.slice(sep);
+  return addRootPrefix(headingPath, rootText) + rest;
 }
 
 function makeNode(text: string, level: number, bodyLines: string[]): MindMapNode {
