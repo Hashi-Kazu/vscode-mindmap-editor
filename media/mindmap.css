@@ -231,6 +231,11 @@ body {
   font-weight: 600;
 }
 
+/* Root (file name) is not inline-editable: hint via label cursor */
+.node[data-level="0"] .label {
+  cursor: default;
+}
+
 /* Collapse toggle */
 .toggle-btn {
   background: transparent;

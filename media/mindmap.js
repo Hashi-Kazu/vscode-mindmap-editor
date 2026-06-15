@@ -21,6 +21,19 @@
   // Width occupied by the collapse toggle (▼/▶) incl. its flex gap.
   // Body items with children render this button, so their width must account for it.
   const TOGGLE_W      = 19;
+  // Drag/drop hit tolerance (in layout units, before transform scale).
+  // DROP_TOLERANCE expands the hit box around a node on all sides.
+  // Distance to a node is measured to the nearest point on its rectangle
+  // (clamped), NOT to its center — so the full node width is grabbable
+  // rather than only the central band.
+  const DROP_TOLERANCE = 40;
+
+  /** Distance from point (px,py) to the nearest point on rect [x,x+w]×[y,y+h]. */
+  function distToRect(px, py, x, y, w, h) {
+    const dx = px < x ? x - px : px > x + w ? px - (x + w) : 0;
+    const dy = py < y ? y - py : py > y + h ? py - (y + h) : 0;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
   // Text width measurement for dynamic node sizing
   let _measureCtx = null;
@@ -975,6 +988,9 @@
 
   function beginEdit(node, div, label) {
     if (editingId) return;
+    // Root node corresponds to the file name and must not be renamed inline.
+    // This is the single choke point for dblclick / F2 / Enter-fallback edits.
+    if (root && node.id === root.id) return;
     editingId = node.id;
     selectedId = node.id;
 
@@ -1381,7 +1397,7 @@
     const stageRect = stage.getBoundingClientRect();
     const sx = (e.clientX - stageRect.left - transform.x) / transform.scale;
     const sy = (e.clientY - stageRect.top  - transform.y) / transform.scale;
-    let best = null, bestDist = 40;
+    let best = null, bestDist = DROP_TOLERANCE;
     // Use all dragged nodes if multi-drag
     const draggedNodes = (dragState && dragState.nodes && dragState.nodes.length > 1)
       ? dragState.nodes : [draggedNode];
@@ -1400,7 +1416,7 @@
       const relY = sy - ny;
       let pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
       if (pos === 'inside' && node.level >= 6) pos = 'h6-blocked';
-      cb({ targetNode: node, position: pos }, Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
+      cb({ targetNode: node, position: pos }, distToRect(sx, sy, nx, ny, nw, nh));
     }
     if (!node.collapsed) node.children.forEach(c => collectDropCandidates(c, dragged, sx, sy, tolerance, cb));
   }
@@ -1553,7 +1569,7 @@
     const stageRect = stage.getBoundingClientRect();
     const sx = (e.clientX - stageRect.left - transform.x) / transform.scale;
     const sy = (e.clientY - stageRect.top  - transform.y) / transform.scale;
-    let best = null, bestDist = 40;
+    let best = null, bestDist = DROP_TOLERANCE;
     collectBodyDropCandidates(root, ds, sx, sy, (result, dist) => {
       if (dist < bestDist) { bestDist = dist; best = result; }
     });
@@ -1566,11 +1582,11 @@
       const isDragSrc = item._owner && item._owner.id === ds.parentNode.id && item.lineIdx === ds.lineIdx;
       if (!isDragSrc) {
         const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = BODY_H;
-        if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
+        if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
           cb({ type: 'body-item', targetNode: item._owner, targetItem: item, position: pos },
-             Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
+             distToRect(sx, sy, nx, ny, nw, nh));
         }
       }
       collectBodyDropFromItems(item.children, ds, sx, sy, cb);
@@ -1587,19 +1603,19 @@
       for (const item of node._bodyItems) {
         if (node.id === ds.parentNode.id && item.lineIdx === ds.lineIdx) continue;
         const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = BODY_H;
-        if (sx >= nx - 40 && sx <= nx + nw + 40 && sy >= ny - 40 && sy <= ny + nh + 40) {
+        if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
           cb({ type: 'body-item', targetNode: node, targetItem: item, position: pos },
-             Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
+             distToRect(sx, sy, nx, ny, nw, nh));
         }
         collectBodyDropFromItems(item.children, ds, sx, sy, cb);
       }
     }
     const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = NODE_H;
-    if (sx >= nx - 30 && sx <= nx + nw + 30 && sy >= ny - 30 && sy <= ny + nh + 30) {
+    if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
       cb({ type: 'heading', targetNode: node },
-         Math.sqrt((sx - nx - nw/2)**2 + (sy - ny - nh/2)**2));
+         distToRect(sx, sy, nx, ny, nw, nh));
     }
     if (!node.collapsed) node.children.forEach(c => collectBodyDropCandidates(c, ds, sx, sy, cb));
   }
