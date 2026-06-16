@@ -131,44 +131,6 @@ export class MindMapPanel {
         break;
       }
 
-      case 'editBody': {
-        this.isOperating = true;
-        try {
-          const { id, body } = msg as { type: string; id: string; body: string };
-          if (!this.lastRoot) break;
-          const node = findNodeById(this.lastRoot, id);
-          if (!node) break;
-          node.body = body;
-          await this.commitTree();
-        } finally {
-          this.isOperating = false;
-        }
-        // Re-sync: the serializer may normalize body text (trailing blanks,
-        // whitespace-only lines), so the file is authoritative. This keeps the
-        // webview's lineIdx-based body model aligned with disk and prevents a
-        // later splice from targeting the wrong line. The webview ignores this
-        // 'update' while an inline edit is active (editingId/bodyEditing guard).
-        this.syncFromDocument(this.document);
-        break;
-      }
-
-      case 'renameNode': {
-        this.isOperating = true;
-        try {
-          const { id, newText } = msg as { type: string; id: string; newText: string };
-          if (!this.lastRoot) break;
-          const node = findNodeById(this.lastRoot, id);
-          if (!node) break;
-          node.text = newText;
-          await this.commitTree();
-        } finally {
-          this.isOperating = false;
-        }
-        // Re-sync: ensures webview reflects the saved Markdown state.
-        this.syncFromDocument(this.document);
-        break;
-      }
-
       case 'saveCollapseState': {
         const { collapsedPaths } = msg as {
           type: string;
@@ -320,15 +282,6 @@ export class MindMapPanel {
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
   }
-}
-
-function findNodeById(node: MindMapNode, id: string): MindMapNode | null {
-  if (node.id === id) return node;
-  for (const c of node.children) {
-    const found = findNodeById(c, id);
-    if (found) return found;
-  }
-  return null;
 }
 
 function generateNonce(): string {

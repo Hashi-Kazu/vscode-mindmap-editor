@@ -1017,7 +1017,12 @@
       if (trimmed && trimmed !== node.text) {
         pushUndo();
         node.text = trimmed;
-        vscode.postMessage({ type: 'renameNode', id: node.id, newText: trimmed });
+        // Send the whole tree (structuralEdit) instead of a single-node
+        // renameNode. The old path relied on the extension resolving the node
+        // by id (findNodeById(lastRoot, id)); when ids drifted between the
+        // webview root and lastRoot, the rename was silently dropped. Replacing
+        // lastRoot wholesale makes the rename persist regardless of id alignment.
+        postStructuralEdit();
       }
       render();
     };
@@ -1079,7 +1084,7 @@
       }
     }
     parentNode.body = lines.join('\n');
-    vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+    postStructuralEdit();
   }
 
   function toggleBodyItemCheckbox(parentNode, lineIdx, checked) {
@@ -1088,7 +1093,7 @@
     lines[lineIdx] = lines[lineIdx].replace(/\[[ xX]\]/i, checked ? '[x]' : '[ ]');
     parentNode.body = lines.join('\n');
     pushUndo();
-    vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+    postStructuralEdit();
     render();
   }
 
@@ -1114,11 +1119,11 @@
     parentNode.body = lines.join('\n');
     pushUndo();
     parentNode.collapsed = false;
-    // Hold the editing guard across the editBody round-trip: the new item's
+    // Hold the editing guard across the structuralEdit round-trip: the new item's
     // inline input opens asynchronously in render()'s requestAnimationFrame,
     // and a re-sync 'update' must not tear it down before it appears.
     bodyEditing = true;
-    vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+    postStructuralEdit();
     _pendingBodyEdit = { parentId: parentNode.id, lineIdx: insertAt };
     selectedBodyItemKey = `${parentNode.id}:${insertAt}`;
     selectedBodyItemData = { parentNode, lineIdx: insertAt, indent };
@@ -1137,7 +1142,7 @@
     lines.splice(lineIdx, lineCount);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     parentNode.body = lines.join('\n');
-    vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+    postStructuralEdit();
   }
 
   function deleteBodyItem(parentNode, lineIdx) {
@@ -1155,7 +1160,7 @@
     parentNode.body = lines.join('\n');
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
-    vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+    postStructuralEdit();
     render();
   }
 
@@ -1899,7 +1904,7 @@
         pushUndo();
         lines.splice(lastLine + 1, 0, ...pasteLines);
         parentNode.body = lines.join('\n');
-        vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
+        postStructuralEdit();
         render();
       } else if (selectedId && root) {
         const node = findById(root, selectedId);
@@ -1911,7 +1916,7 @@
         pushUndo();
         lines.splice(insertAt, 0, ...pasteLines);
         node.body = lines.join('\n');
-        vscode.postMessage({ type: 'editBody', id: node.id, body: node.body });
+        postStructuralEdit();
         render();
       }
     } else if (clipboard.type === 'body-multi') {
@@ -1946,7 +1951,7 @@
         targetNode.body = lines.join('\n');
         insertAt += pasteLines.length;
       }
-      vscode.postMessage({ type: 'editBody', id: targetNode.id, body: targetNode.body });
+      postStructuralEdit();
       render();
     } else if (clipboard.type === 'heading') {
       // When multi-selecting, use selectedId (primary selection) as paste target.

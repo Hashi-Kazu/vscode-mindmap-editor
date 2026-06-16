@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.8] - 2026-06-16
+
+### Fixed
+- 本文項目のチェックボックストグル・本文インライン編集・本文項目の追加/削除・本文ペースト、およびノード名のインライン編集が md ファイルに反映されないことがある不具合を修正。これらの経路は `editBody` / `renameNode`（単一ノードのみ更新）を送っていたが、拡張機能側が `findNodeById(lastRoot, id)` でノードを解決できなかった場合（webview 側 root の id と拡張機能側 lastRoot の id がずれた瞬間）に変更が黙って破棄されていた。2.3.7 のドラッグ＆ドロップ修正と同様、これら全経路を `structuralEdit`（ツリー全体送信）に統一し、id 解決に依存せず確実に永続化されるようにした。`editBody` / `renameNode` メッセージと拡張機能側の対応ハンドラ（および未使用となった `findNodeById`）を廃止し、サイレントドロップの温床を除去した。
+
 ## [2.3.7] - 2026-06-16
 
 ### Fixed
