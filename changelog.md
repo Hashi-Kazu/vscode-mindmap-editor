@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.7] - 2026-06-16
+
+### Fixed
+- 本文項目・子項目をドラッグ＆ドロップで移動しても md ファイルに反映されない不具合を修正。同一親内の本文項目移動で `editBody`（単一ノードの本文のみ更新）を送っていたが、拡張機能側が `findNodeById(lastRoot, id)` でノードを解決できなかった場合に本文変更が黙って破棄され、ファイルへ書き戻されないことがあった。見出しノードの移動と同じく `structuralEdit`（ツリー全体送信）に統一し、id 解決に依存せず確実に永続化されるようにした（R-13-10）。
+
 ## [2.3.6] - 2026-06-16
 
 ### Fixed

@@ -1736,23 +1736,15 @@
       result.targetNode.body = tgtLines.join('\n');
     }
 
-    // Post edits: collect all affected nodes and send messages
-    const affectedNodes = new Set();
-    for (const r of resolved) affectedNodes.add(r.parentNode.id);
-    affectedNodes.add(result.targetNode.id);
-
-    // Build a set of all modified nodes
-    const allNodes = new Map(); // id -> node
-    for (const r of resolved) allNodes.set(r.parentNode.id, r.parentNode);
-    allNodes.set(result.targetNode.id, result.targetNode);
-
-    if (affectedNodes.size === 1 && result.type === 'body-item' && result.targetNode.id === ds.parentNode.id) {
-      // Single-parent edit
-      vscode.postMessage({ type: 'editBody', id: result.targetNode.id, body: result.targetNode.body });
-    } else {
-      // Multiple parents changed — do a structural edit
-      postStructuralEdit();
-    }
+    // A body-item move mutates one or more nodes' `body` in place on `root`.
+    // Persist by sending the whole tree (structuralEdit), exactly like heading
+    // node moves do. The previous single-parent `editBody` shortcut relied on
+    // the extension resolving the node by id (findNodeById(lastRoot, id)); when
+    // that id lookup missed, the body change was silently dropped and the move
+    // never reached the file — unlike node moves which replace lastRoot wholesale.
+    // structuralEdit replaces lastRoot with the webview root, so the move always
+    // persists regardless of id alignment.
+    postStructuralEdit();
 
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
