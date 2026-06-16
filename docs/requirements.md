@@ -421,19 +421,22 @@ src/                       # TypeScript ソース（Extension Host 側）
   markdownParser.ts        # Markdown → MindMapNode（フロントマター解析含む）
   markdownSerializer.ts    # MindMapNode → Markdown（折りたたみパス書き戻し含む）
   types.ts                 # MindMapNode・メッセージ型定義
+  bodyItems.ts             # 本文項目の純粋ロジック（mindmap.js と同期・テスト対象）
 media/                     # Webview アセット
   mindmap.js               # レイアウト計算・描画・操作制御（動的サイズ・D&D・編集等）
   mindmap.css              # スタイル
 test/                      # ユニットテスト（node:test）
   markdownRoundTrip.test.ts   # parse→serialize の冪等性・本文/フロントマター保全
   collapsedPaths.test.ts      # 折りたたみパスの抽出・適用ロジック
+  bodyItems.test.ts           # 本文項目のパース・ツリー化・indent 変換ロジック
 esbuild.js                 # 本体ビルド（dist/extension.js を生成）
 esbuild.test.js            # test/*.test.ts を dist-test/ へトランスパイル（pretest）
 ```
 
 - ビルド: `npm run build`（esbuild → `dist/extension.js`）
 - テスト: `npm test`（`pretest` で `esbuild.test.js` がテストをトランスパイルし、`node --test` で `dist-test/**/*.test.js` を実行）
-- `test/` のユニットテストは parser/serializer の round-trip と折りたたみパスのロジックを自動検証する。Webview 側の操作（D&D・編集・ズーム等）は対象外であり、§8 の受入テストでマニュアル検証する
+- `test/` のユニットテストは parser/serializer の round-trip・折りたたみパス・本文項目ロジック（`src/bodyItems.ts`）を自動検証する。Webview 側の操作（D&D・編集・ズーム等）は対象外であり、§8 の受入テストでマニュアル検証する
+- 本文項目ロジックは Webview（`media/mindmap.js`）が素のアセットとして配信されバンドル対象外のため、`src/bodyItems.ts` に同一ロジックを複製してテストする。両者の同期が必須（mindmap.js 側にコメント明記）
 
 ---
 ## 7. データモデル

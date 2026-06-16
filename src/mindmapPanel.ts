@@ -143,6 +143,12 @@ export class MindMapPanel {
         } finally {
           this.isOperating = false;
         }
+        // Re-sync: the serializer may normalize body text (trailing blanks,
+        // whitespace-only lines), so the file is authoritative. This keeps the
+        // webview's lineIdx-based body model aligned with disk and prevents a
+        // later splice from targeting the wrong line. The webview ignores this
+        // 'update' while an inline edit is active (editingId/bodyEditing guard).
+        this.syncFromDocument(this.document);
         break;
       }
 
@@ -171,6 +177,8 @@ export class MindMapPanel {
         if (!this.lastRoot) break;
         applyCollapsedPaths(this.lastRoot, collapsedPaths, '');
         await this.commitTree(collapsedPaths);
+        // Re-sync: keep the cached tree aligned with the serialized file.
+        this.syncFromDocument(this.document);
         break;
       }
 
@@ -178,6 +186,8 @@ export class MindMapPanel {
         const { paths } = msg as { type: string; paths: string[] };
         this.lastBodyItemCollapsePaths = paths;
         await this.commitTree();
+        // Re-sync: keep the cached tree aligned with the serialized file.
+        this.syncFromDocument(this.document);
         break;
       }
     }

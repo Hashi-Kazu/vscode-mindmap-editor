@@ -65,6 +65,7 @@
   let selectedId = null;
   let selectedIds = new Set(); // multi-selection: Set of node ids
   let editingId = null;
+  let bodyEditing = false;         // true while a body-item inline input is active
   let transform = { x: 80, y: 0, scale: 1 };
   let contextTarget = null;
   let contextBodyItem = null;
@@ -95,6 +96,10 @@
   const ctxMenu      = document.getElementById('context-menu');
 
   // ─── Body Item Helpers ────────────────────────────────────────────────────
+  // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
+  // findBodyItemByLineIdx / reformatBodyLines are mirrored in src/bodyItems.ts
+  // (unit-tested there since this file isn't bundled by esbuild). Keep both in
+  // sync — divergence corrupts lineIdx-based body operations.
 
   /** Flat list of all body list items (for line-index-based operations) */
   function getBodyItems(bodyText) {
@@ -593,11 +598,13 @@
         const key = `${pendingParentId}:${pendingLineIdx}`;
         const el = document.querySelector(`.body-node[data-body-key="${key}"]`);
         const lbl = el && el.querySelector('.body-node-label');
-        if (el && lbl) {
-          const pNode = root && findById(root, pendingParentId);
-          const allItems = pNode ? getBodyItems(pNode.body) : [];
-          const it = allItems.find(i => i.lineIdx === pendingLineIdx);
-          if (pNode && it) beginBodyItemEdit(pNode, it, el, lbl);
+        const pNode = el && lbl && root ? findById(root, pendingParentId) : null;
+        const it = pNode ? getBodyItems(pNode.body).find(i => i.lineIdx === pendingLineIdx) : null;
+        if (pNode && it) {
+          beginBodyItemEdit(pNode, it, el, lbl);
+        } else {
+          // Target item vanished (e.g. re-synced away) — release the guard.
+          bodyEditing = false;
         }
       });
     }
@@ -1027,6 +1034,7 @@
   // ─── Body Item Operations ─────────────────────────────────────────────────
 
   function beginBodyItemEdit(parentNode, item, div, label) {
+    bodyEditing = true;
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'edit-input';
@@ -1036,6 +1044,7 @@
     input.select();
 
     const commit = () => {
+      bodyEditing = false;
       const trimmed = input.value.trim();
       if (trimmed && trimmed !== item.text) {
         pushUndo();
@@ -1043,7 +1052,7 @@
       }
       render();
     };
-    const cancel = () => render();
+    const cancel = () => { bodyEditing = false; render(); };
 
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (e) => {
@@ -1105,6 +1114,10 @@
     parentNode.body = lines.join('\n');
     pushUndo();
     parentNode.collapsed = false;
+    // Hold the editing guard across the editBody round-trip: the new item's
+    // inline input opens asynchronously in render()'s requestAnimationFrame,
+    // and a re-sync 'update' must not tear it down before it appears.
+    bodyEditing = true;
     vscode.postMessage({ type: 'editBody', id: parentNode.id, body: parentNode.body });
     _pendingBodyEdit = { parentId: parentNode.id, lineIdx: insertAt };
     selectedBodyItemKey = `${parentNode.id}:${insertAt}`;
@@ -2128,7 +2141,9 @@
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'update') {
-      if (editingId) return;
+      // Skip re-render while an inline edit (heading or body item) is in
+      // progress so the live <input> isn't torn down mid-typing.
+      if (editingId || bodyEditing) return;
       root = msg.root;
       // Restore body item collapse state from frontmatter
       if (msg.bodyItemCollapsePaths) {

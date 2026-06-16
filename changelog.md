@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.6] - 2026-06-16
+
+### Fixed
+- 本文編集（editBody）/折りたたみ状態保存後にファイルを唯一の真実として再同期するよう統一。シリアライズ時の本文正規化で webview の lineIdx モデルがファイルと乖離し、後続の行操作が別の行を破壊し得る不具合を防止。インライン編集中は再同期で入力が破棄されないようガードを追加。
+
+### Internal
+- 本文項目の純粋ロジック（getBodyItems / getBodyItemTree / bodyItemLastLineIdx / findBodyItemByLineIdx / reformatBodyLines）を `src/bodyItems.ts` に移植し、`test/bodyItems.test.ts` でユニットテストを追加。
+
 ## [2.3.2] - 2026-06-14
 
 ### Changed
