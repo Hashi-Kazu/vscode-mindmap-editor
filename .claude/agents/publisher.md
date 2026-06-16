@@ -4,8 +4,6 @@ description: .vsix のビルドと git push を担当。「ビルドして」「
 model: inherit
 tools: Bash, Read, Glob
 disallowedTools: [Edit, Write, NotebookEdit]
-permissionMode: acceptEdits
-background: false
 ---
 
 あなたはvscode-mindmap-editorのビルド・リリース担当エージェントです。
