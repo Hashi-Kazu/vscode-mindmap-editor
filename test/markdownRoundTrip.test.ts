@@ -311,3 +311,127 @@ test('empty input produces just a terminating newline', () => {
   const out = roundTrip('');
   assert.equal(out, '\n');
 });
+
+test('heading-like lines inside a code fence stay as body (not promoted)', () => {
+  const input = [
+    '# Real',
+    'intro',
+    '```',
+    '# not a heading',
+    '- [ ] not an item',
+    '```',
+    'outro',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  // Only the real heading becomes a child; the fenced "# not a heading" stays
+  // inside Real's body.
+  assert.equal(parsed.root.children.length, 1);
+  const real = parsed.root.children[0];
+  assert.equal(real.text, 'Real');
+  assert.equal(real.children.length, 0);
+  assert.ok(real.body.includes('# not a heading'));
+  assert.ok(real.body.includes('- [ ] not an item'));
+
+  const out = assertStable(input);
+  assert.equal(out, input);
+});
+
+test('language-labeled fence (```js) protects its contents', () => {
+  const input = [
+    '# H',
+    '```js',
+    '## still code',
+    '```',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children.length, 1);
+  assert.ok(parsed.root.children[0].body.includes('## still code'));
+  assert.equal(assertStable(input), input);
+});
+
+test('tilde (~~~) fence protects its contents', () => {
+  const input = [
+    '# H',
+    '~~~',
+    '### inside tilde',
+    '~~~',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children.length, 1);
+  assert.ok(parsed.root.children[0].body.includes('### inside tilde'));
+  assert.equal(assertStable(input), input);
+});
+
+test('a ``` fence is not closed by a ~~~ line (mismatched fences are content)', () => {
+  const input = [
+    '# H',
+    '```',
+    '~~~ inner tilde line',
+    '# still inside backtick fence',
+    '```',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children.length, 1);
+  assert.ok(parsed.root.children[0].body.includes('# still inside backtick fence'));
+  assert.equal(assertStable(input), input);
+});
+
+test('unclosed fence keeps the rest of the document as body', () => {
+  const input = [
+    '# H',
+    'before',
+    '```',
+    '# never escapes',
+    '## also code',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children.length, 1);
+  assert.ok(parsed.root.children[0].body.includes('# never escapes'));
+  assert.ok(parsed.root.children[0].body.includes('## also code'));
+  // Idempotent even when the fence is left open.
+  const once = roundTrip(input);
+  const twice = roundTrip(once);
+  assert.equal(twice, once);
+});
+
+test('indented fence still protects its contents', () => {
+  const input = [
+    '# H',
+    '  ```',
+    '  # indented code heading',
+    '  ```',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children.length, 1);
+  assert.ok(parsed.root.children[0].body.includes('# indented code heading'));
+  assert.equal(assertStable(input), input);
+});
+
+test('fence inside a nested heading body is scoped to that heading', () => {
+  const input = [
+    '# A',
+    '## B',
+    '```',
+    '# fenced in B',
+    '```',
+    '### C',
+    'c body',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  const a = parsed.root.children[0];
+  assert.equal(a.text, 'A');
+  const b = a.children[0];
+  assert.equal(b.text, 'B');
+  assert.ok(b.body.includes('# fenced in B'));
+  // C is still recognized as a real heading after the fence closes.
+  assert.equal(b.children[0].text, 'C');
+  assert.equal(assertStable(input), input);
+});

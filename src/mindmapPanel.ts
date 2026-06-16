@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from './markdownParser';
 import { serializeToMarkdown } from './markdownSerializer';
+import { detectConflict, normalizeText } from './conflictDetection';
 import { MindMapNode } from './types';
 
 export class MindMapPanel {
@@ -17,6 +18,13 @@ export class MindMapPanel {
   private lastFrontmatter = '';
   private lastRoot: MindMapNode | null = null;
   private lastBodyItemCollapsePaths: string[] = [];
+
+  // The exact document text (newline-normalized) the cached tree above was last
+  // parsed from. Used as the optimistic-concurrency "base": before a full
+  // document overwrite we verify the live/disk content still equals this, so a
+  // concurrent external edit (shared drive / Git pull) is detected instead of
+  // being silently clobbered. null until the first sync.
+  private baseText: string | null = null;
 
   // Guard against echo loops: skip onDidChangeTextDocument while we apply our own edit
   private applyingEdit = false;
@@ -88,10 +96,14 @@ export class MindMapPanel {
   }
 
   private syncFromDocument(doc: vscode.TextDocument): void {
+    const text = doc.getText();
     const { root, frontmatter, preamble, bodyItemCollapsePaths } = parseMarkdown(
-      doc.getText(),
+      text,
       doc.uri.fsPath
     );
+    // Record the base snapshot the cached tree derives from, so the next write
+    // can detect concurrent external edits against it.
+    this.baseText = normalizeText(text);
     this.lastRoot = root;
     this.lastFrontmatter = frontmatter;
     this.lastPreamble = preamble;
@@ -174,6 +186,15 @@ export class MindMapPanel {
     // bug where a concurrent write with the pre-edit length would leave tail
     // content behind and duplicate nodes in the parsed tree.
     const run = async (): Promise<void> => {
+      // Optimistic concurrency check BEFORE overwriting: if the file changed
+      // out from under us (another person on a shared drive / after a Git pull,
+      // or an external edit that arrived while isOperating suppressed the sync),
+      // do not blindly clobber it.
+      if (await this.hasConcurrentChange(newContent)) {
+        const resolved = await this.resolveConflict(newContent);
+        if (!resolved) return; // user chose "load latest" — abandon this write
+      }
+
       this.applyingEdit = true;
       try {
         const edit = new vscode.WorkspaceEdit();
@@ -185,6 +206,8 @@ export class MindMapPanel {
         const applied = await vscode.workspace.applyEdit(edit);
         if (!applied) return;
         await this.document.save();
+        // The write succeeded — this content is now the base for the next edit.
+        this.baseText = normalizeText(newContent);
         this.panel.webview.postMessage({ type: 'saved' });
       } finally {
         this.applyingEdit = false;
@@ -194,6 +217,112 @@ export class MindMapPanel {
     // Keep the queue alive even if a write fails.
     this._editQueue = next.then(() => {}, () => {});
     return next;
+  }
+
+  /**
+   * True when the live document or the on-disk file no longer matches the base
+   * snapshot the cached tree was parsed from — i.e. a concurrent external edit
+   * exists. The disk is read in addition to the in-memory TextDocument because
+   * on shared drives VS Code's TextDocument can lag behind the actual file.
+   */
+  private async hasConcurrentChange(outgoing: string): Promise<boolean> {
+    if (this.baseText === null) return false;
+
+    const liveText = this.document.getText();
+    if (detectConflict(this.baseText, liveText, outgoing)) return true;
+
+    // Also consult the disk: the TextDocument may be stale relative to a file
+    // replaced by another writer (shared drive / git checkout).
+    let diskText: string;
+    try {
+      const bytes = await vscode.workspace.fs.readFile(this.document.uri);
+      diskText = Buffer.from(bytes).toString('utf8');
+    } catch {
+      // File missing/unreadable (e.g. deleted) — treat as no detectable
+      // conflict and let the normal write path recreate it.
+      return false;
+    }
+    return detectConflict(this.baseText, diskText, outgoing);
+  }
+
+  /**
+   * Concurrent edit detected. Ask the user how to resolve, prioritizing "no
+   * silent data loss". Returns true if the caller should proceed with the
+   * overwrite ("keep mine"), false if the write must be abandoned ("load
+   * latest"). The discarded side is backed up to a sibling file first.
+   */
+  private async resolveConflict(outgoing: string): Promise<boolean> {
+    const loadLatest = '最新を読み込む（自分の編集は破棄）';
+    const overwrite = '自分の変更で上書き（他者の変更は破棄）';
+
+    const choice = await vscode.window.showWarningMessage(
+      `別の場所で「${path.basename(this.document.uri.fsPath)}」が変更されています。` +
+        'マインドマップの編集をそのまま保存すると、他の変更が失われる可能性があります。',
+      { modal: true },
+      loadLatest,
+      overwrite
+    );
+
+    if (choice === overwrite) {
+      // Back up the other person's version before we discard it.
+      await this.backupConflict('remote', this.document.getText());
+      return true;
+    }
+
+    // Default (including dismissal): keep remote, discard our edit — the safe
+    // choice. Back up our serialized edit so it is not lost outright.
+    await this.backupConflict('mine', outgoing);
+    await this.reloadFromDisk();
+    return false;
+  }
+
+  /** Write a timestamped backup beside the document so neither side is lost. */
+  private async backupConflict(which: 'mine' | 'remote', content: string): Promise<void> {
+    try {
+      const stamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, '-')
+        .replace('T', '_')
+        .slice(0, 19);
+      const dir = path.dirname(this.document.uri.fsPath);
+      const ext = path.extname(this.document.uri.fsPath);
+      const base = path.basename(this.document.uri.fsPath, ext);
+      const backupName = `${base}.conflict-${which}-${stamp}${ext}`;
+      const backupUri = vscode.Uri.file(path.join(dir, backupName));
+      await vscode.workspace.fs.writeFile(
+        backupUri,
+        Buffer.from(content, 'utf8')
+      );
+    } catch {
+      // Backup is best-effort; never let it block conflict resolution.
+    }
+  }
+
+  /** Reload the document from disk and re-sync the mindmap to that state. */
+  private async reloadFromDisk(): Promise<void> {
+    try {
+      const bytes = await vscode.workspace.fs.readFile(this.document.uri);
+      const diskText = Buffer.from(bytes).toString('utf8');
+      // Bring the in-memory TextDocument up to date if it lags the disk.
+      if (normalizeText(this.document.getText()) !== normalizeText(diskText)) {
+        this.applyingEdit = true;
+        try {
+          const edit = new vscode.WorkspaceEdit();
+          const fullRange = new vscode.Range(
+            this.document.positionAt(0),
+            this.document.positionAt(this.document.getText().length)
+          );
+          edit.replace(this.document.uri, fullRange, diskText);
+          await vscode.workspace.applyEdit(edit);
+          await this.document.save();
+        } finally {
+          this.applyingEdit = false;
+        }
+      }
+    } catch {
+      // If the disk read fails, fall back to the current TextDocument state.
+    }
+    this.syncFromDocument(this.document);
   }
 
   private buildHtml(): string {

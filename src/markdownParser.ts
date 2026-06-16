@@ -39,8 +39,23 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   const preambleLines: string[] = [];
   let current: Section | null = null;
 
+  // Track open code-fence state so heading-like lines inside a fenced block
+  // (``` or ~~~, optionally indented / with a language label) are kept as raw
+  // body and never promoted to headings. A fence is closed only by a fence of
+  // the same character; a non-matching fence inside an open block is content.
+  let fenceChar: '`' | '~' | null = null;
   for (let i = bodyStart; i < lines.length; i++) {
-    const m = lines[i].match(/^(#{1,6}) +(.+)$/);
+    const fence = lines[i].match(/^[ \t]*(`{3,}|~{3,})/);
+    if (fence) {
+      const ch = fence[1][0] as '`' | '~';
+      if (fenceChar === null) {
+        fenceChar = ch;
+      } else if (fenceChar === ch) {
+        fenceChar = null;
+      }
+    }
+
+    const m = fenceChar === null ? lines[i].match(/^(#{1,6}) +(.+)$/) : null;
     if (m) {
       if (current) sections.push(current);
       current = { level: m[1].length, text: m[2].trim(), bodyLines: [] };
