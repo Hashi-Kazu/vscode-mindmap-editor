@@ -8,11 +8,18 @@ import { MindMapNode } from './types';
 
 export class MindMapPanel {
   private static readonly panels = new Map<string, MindMapPanel>();
+  // The panel most recently created or interacted with. Used as the target for
+  // "follow the active editor": when the user focuses a different .md file we
+  // retarget this panel instead of spawning a duplicate.
+  private static activePanel: MindMapPanel | null = null;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
   private document: vscode.TextDocument;
   private disposables: vscode.Disposable[] = [];
+  // Disposable for the per-document onDidChangeTextDocument listener. Recreated
+  // whenever the panel retargets a new document so the sync follows the swap.
+  private docChangeListener: vscode.Disposable | null = null;
 
   // Parsed state cache — kept in sync WITHOUT re-parsing after our own edits
   private lastPreamble = '';
@@ -48,10 +55,38 @@ export class MindMapPanel {
     const key = document.uri.toString();
     const existing = MindMapPanel.panels.get(key);
     if (existing) {
+      MindMapPanel.activePanel = existing;
       existing.panel.reveal(vscode.ViewColumn.Beside);
       return;
     }
-    new MindMapPanel(extensionUri, document);
+    MindMapPanel.activePanel = new MindMapPanel(extensionUri, document);
+  }
+
+  /**
+   * Follow the active editor: when the user focuses a different Markdown
+   * document, retarget the active mindmap panel to that document instead of
+   * leaving the viewer stuck on the document it was opened with. No-op when:
+   *  - there is no open panel,
+   *  - the target document is already shown by some panel (just track it),
+   *  - a panel keyed to the same URI already exists (avoid two panels for one
+   *    doc — retarget that one instead).
+   * Non-Markdown editors (output panel, settings, etc.) never reach here; the
+   * caller filters on languageId, so the viewer keeps its current content.
+   */
+  public static followActiveDocument(document: vscode.TextDocument): void {
+    const key = document.uri.toString();
+
+    // Already the target of some panel — just make it the active one.
+    const sameDocPanel = MindMapPanel.panels.get(key);
+    if (sameDocPanel) {
+      MindMapPanel.activePanel = sameDocPanel;
+      return;
+    }
+
+    const target = MindMapPanel.activePanel;
+    if (!target) return; // no viewer open — nothing to follow
+
+    target.switchDocument(document);
   }
 
   private constructor(extensionUri: vscode.Uri, document: vscode.TextDocument) {
@@ -81,16 +116,16 @@ export class MindMapPanel {
       this.disposables
     );
 
-    const docChangeListener = vscode.workspace.onDidChangeTextDocument((e) => {
-      if (
-        !this.applyingEdit &&
-        !this.isOperating &&
-        e.document.uri.toString() === document.uri.toString()
-      ) {
-        this.syncFromDocument(e.document);
-      }
-    });
-    this.disposables.push(docChangeListener);
+    this.registerDocChangeListener();
+
+    // Track focus into this panel so it becomes the active follow target.
+    this.panel.onDidChangeViewState(
+      (e) => {
+        if (e.webviewPanel.active) MindMapPanel.activePanel = this;
+      },
+      null,
+      this.disposables
+    );
 
     // Fallback: if the webview never sends 'ready' within 2 s, push anyway.
     // (e.g., retainContextWhenHidden restores a hidden webview without re-running JS)
@@ -101,6 +136,71 @@ export class MindMapPanel {
       }
     }, 2000);
     this.disposables.push({ dispose: () => clearTimeout(fallbackTimer) });
+  }
+
+  /**
+   * (Re)create the onDidChangeTextDocument listener bound to the CURRENT
+   * this.document. Must be called again after switchDocument so external-edit
+   * sync follows the new target. The previous listener (if any) is disposed.
+   */
+  private registerDocChangeListener(): void {
+    this.docChangeListener?.dispose();
+    this.docChangeListener = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (
+        !this.applyingEdit &&
+        !this.isOperating &&
+        e.document.uri.toString() === this.document.uri.toString()
+      ) {
+        this.syncFromDocument(e.document);
+      }
+    });
+    this.disposables.push(this.docChangeListener);
+  }
+
+  /**
+   * Retarget this panel to a different Markdown document (follow the active
+   * editor). Safe against the in-flight edit machinery: writes for the previous
+   * document are serialized through _editQueue, so we wait for the queue to
+   * drain before swapping document-scoped state. All per-document caches/flags
+   * are reset so the new document is treated as a fresh open (base snapshot,
+   * collapse paths, checkbox migration), and the panels Map key + title follow
+   * the swap. Never touches file contents — purely a view retarget (NF-03).
+   */
+  public switchDocument(document: vscode.TextDocument): void {
+    if (document.uri.toString() === this.document.uri.toString()) return;
+
+    // Defer the actual swap until any queued write for the OLD document has
+    // completed, so we don't reset baseText/lastRoot out from under a pending
+    // applyDocumentEdit (which would corrupt its concurrency check / write).
+    this._editQueue = this._editQueue.then(
+      () => this.performSwitch(document),
+      () => this.performSwitch(document)
+    );
+  }
+
+  private performSwitch(document: vscode.TextDocument): void {
+    // Re-key the panels Map.
+    MindMapPanel.panels.delete(this.document.uri.toString());
+    this.document = document;
+    MindMapPanel.panels.set(document.uri.toString(), this);
+    MindMapPanel.activePanel = this;
+
+    // Reset all document-scoped state so the new doc is a clean open.
+    this.lastPreamble = '';
+    this.lastFrontmatter = '';
+    this.lastRoot = null;
+    this.lastBodyItemCollapsePaths = [];
+    this.baseText = null;
+    this.applyingEdit = false;
+    this.isOperating = false;
+    this.needsCheckboxMigration = true;
+
+    this.panel.title = `Mind Map — ${path.basename(document.uri.fsPath)}`;
+
+    // Rebind the external-edit listener to the new document, then render it.
+    this.registerDocChangeListener();
+    this.syncFromDocument(document);
+    void this.maybeMigrateCheckboxes();
   }
 
   private syncFromDocument(doc: vscode.TextDocument): void {
@@ -443,6 +543,12 @@ export class MindMapPanel {
 
   public dispose(): void {
     MindMapPanel.panels.delete(this.document.uri.toString());
+    if (MindMapPanel.activePanel === this) {
+      // Fall back to any other open panel so follow-mode keeps working.
+      const next = MindMapPanel.panels.values().next();
+      MindMapPanel.activePanel = next.done ? null : next.value;
+    }
+    this.docChangeListener = null;
     this.panel.dispose();
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
