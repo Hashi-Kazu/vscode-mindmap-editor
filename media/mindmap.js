@@ -97,7 +97,7 @@
 
   // ─── Body Item Helpers ────────────────────────────────────────────────────
   // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
-  // findBodyItemByLineIdx / reformatBodyLines are mirrored in src/bodyItems.ts
+  // findBodyItemByLineIdx / reformatBodyLines / normalizeBodyCheckboxes are mirrored in src/bodyItems.ts
   // (unit-tested there since this file isn't bundled by esbuild). Keep both in
   // sync — divergence corrupts lineIdx-based body operations.
 
@@ -1774,6 +1774,36 @@
         return `${indStr}- ${text}`;
       }
     });
+  }
+
+  /**
+   * Migrate a heading body so top-level (indent=0) plain bullets become empty
+   * checkboxes (`- text` → `- [ ] text`). Mirrors src/bodyItems.ts. The
+   * extension performs this on open and writes it back, so the webview normally
+   * receives already-migrated bodies; this is kept in sync for parity. Existing
+   * checkboxes, nested bullets, prose, and fenced code blocks are untouched.
+   */
+  function normalizeBodyCheckboxes(bodyText) {
+    if (!bodyText) return bodyText;
+    const lines = bodyText.split('\n');
+    let fenceChar = null;
+    let changed = false;
+    const out = lines.map(line => {
+      const fence = line.match(/^[ \t]*(`{3,}|~{3,})/);
+      if (fence) {
+        const ch = fence[1][0];
+        if (fenceChar === null) fenceChar = ch;
+        else if (fenceChar === ch) fenceChar = null;
+        return line;
+      }
+      if (fenceChar !== null) return line;
+      const m = line.match(/^-\s+(.*)$/);
+      if (!m) return line;
+      if (/^\[[ xX]\]\s/.test(m[1])) return line;
+      changed = true;
+      return `- [ ] ${m[1]}`;
+    });
+    return changed ? out.join('\n') : bodyText;
   }
 
   // ─── Copy / Paste ─────────────────────────────────────────────────────────

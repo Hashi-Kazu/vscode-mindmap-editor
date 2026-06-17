@@ -3,6 +3,7 @@ import * as path from 'path';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from './markdownParser';
 import { serializeToMarkdown } from './markdownSerializer';
 import { detectConflict, normalizeText } from './conflictDetection';
+import { normalizeTreeCheckboxes } from './bodyItems';
 import { MindMapNode } from './types';
 
 export class MindMapPanel {
@@ -32,6 +33,10 @@ export class MindMapPanel {
   private isOperating = false;
   // Set to true once the webview sends its 'ready' signal
   private webviewReady = false;
+  // True until the body-item checkbox migration has run once for this panel.
+  // The migration converts legacy top-level plain bullets to empty checkboxes
+  // on first load and writes back if anything changed.
+  private needsCheckboxMigration = true;
   // Serializes document writes — prevents concurrent applyDocumentEdit calls from
   // computing stale fullRange values, which would leave tail content and duplicate nodes.
   private _editQueue: Promise<void> = Promise.resolve();
@@ -90,7 +95,10 @@ export class MindMapPanel {
     // Fallback: if the webview never sends 'ready' within 2 s, push anyway.
     // (e.g., retainContextWhenHidden restores a hidden webview without re-running JS)
     const fallbackTimer = setTimeout(() => {
-      if (!this.webviewReady) this.syncFromDocument(document);
+      if (!this.webviewReady) {
+        this.syncFromDocument(document);
+        void this.maybeMigrateCheckboxes();
+      }
     }, 2000);
     this.disposables.push({ dispose: () => clearTimeout(fallbackTimer) });
   }
@@ -111,6 +119,33 @@ export class MindMapPanel {
     this.panel.webview.postMessage({ type: 'update', root, bodyItemCollapsePaths });
   }
 
+  /**
+   * One-shot on-open migration: convert legacy top-level plain bullet body
+   * items (`- text`) into empty checkboxes (`- [ ] text`) so they can be edited
+   * as checkboxes, then write the result back through the normal save path.
+   * Runs at most once per panel; skips the write entirely when nothing changed
+   * to avoid touching the file (and dirtying it) needlessly. Guarded by
+   * isOperating so the resulting document change does not trigger a redundant
+   * external-edit sync.
+   */
+  private async maybeMigrateCheckboxes(): Promise<void> {
+    if (!this.needsCheckboxMigration) return;
+    this.needsCheckboxMigration = false;
+    if (!this.lastRoot) return;
+
+    const changed = normalizeTreeCheckboxes(this.lastRoot);
+    if (!changed) return;
+
+    this.isOperating = true;
+    try {
+      await this.commitTree();
+    } finally {
+      this.isOperating = false;
+    }
+    // Re-sync so the cached tree and webview reflect the migrated, saved file.
+    this.syncFromDocument(this.document);
+  }
+
   private async handleWebviewMessage(msg: {
     type: string;
     [key: string]: unknown;
@@ -120,6 +155,7 @@ export class MindMapPanel {
         // Webview script has loaded and is listening — send the initial tree.
         this.webviewReady = true;
         this.syncFromDocument(this.document);
+        await this.maybeMigrateCheckboxes();
         break;
       }
 

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.5.0] - 2026-06-17
+
+### Added
+- ビューア（WebviewPanel）を開いた時に、チェックボックス形式になっていないトップレベル（indent=0）の本文項目（プレーン箇条書き `- text`）へ空のチェックボックス（`- [ ] `）を自動付与する正規化（マイグレーション）を追加 — US-13 / R-13-11。
+  - パネル初期化（Webview の `ready` 受信時、`ready` 不達時はフォールバックタイマー）で1パネルにつき1回だけ実行。トップレベルのプレーン箇条書きを `- [ ] text` に変換し、**変更があった場合のみ**既存の保存経路（`applyDocumentEdit` / `_editQueue`）で書き戻す。変換不要時は書き込みを行わずファイルをダーティにしない。
+  - 既存チェックボックス（`- [ ]` / `- [x]` / `- [X]`）はチェック状態を保持してそのまま、ネスト（indent>0）のダッシュ項目はダッシュのまま、非リスト行（段落・通常文）およびコードフェンス（``` / ~~~）内のリスト風行は変更しない（NF-03 厳守）。
+  - 純粋ロジックを `src/bodyItems.ts`（`normalizeBodyCheckboxes` / `normalizeTreeCheckboxes`）に実装し `test/bodyItems.test.ts` でユニットテストを追加。`media/mindmap.js` 側にも同一ロジックをミラー（SYNC REQUIRED コメント更新）。AT-13-11／AT-13-12 を追加。
+
 ## [2.4.0] - 2026-06-17
 
 ### Added

@@ -6,6 +6,8 @@ import {
   bodyItemLastLineIdx,
   findBodyItemByLineIdx,
   reformatBodyLines,
+  normalizeBodyCheckboxes,
+  normalizeTreeCheckboxes,
 } from '../src/bodyItems';
 
 // ─── getBodyItems ───────────────────────────────────────────────────────────
@@ -174,4 +176,73 @@ test('reformatBodyLines keeps non-list lines untouched', () => {
 test('reformatBodyLines clamps negative resulting indent to zero', () => {
   // moving a level-0 line further left stays at 0 (and becomes a checkbox)
   assert.deepEqual(reformatBodyLines(['- a'], 2, 0), ['- [ ] a']);
+});
+
+// ─── normalizeBodyCheckboxes ────────────────────────────────────────────────
+
+test('normalizeBodyCheckboxes converts top-level plain bullets to empty checkboxes', () => {
+  assert.equal(normalizeBodyCheckboxes('- a\n- b'), '- [ ] a\n- [ ] b');
+});
+
+test('normalizeBodyCheckboxes leaves existing checkboxes untouched (state preserved)', () => {
+  const body = '- [ ] a\n- [x] b\n- [X] c';
+  assert.equal(normalizeBodyCheckboxes(body), body);
+});
+
+test('normalizeBodyCheckboxes does not touch nested (indent>0) bullets', () => {
+  const body = '- a\n  - child\n    - grand';
+  assert.equal(normalizeBodyCheckboxes(body), '- [ ] a\n  - child\n    - grand');
+});
+
+test('normalizeBodyCheckboxes leaves prose and blank lines untouched', () => {
+  const body = 'plain paragraph\n\nanother line';
+  assert.equal(normalizeBodyCheckboxes(body), body);
+});
+
+test('normalizeBodyCheckboxes returns the original string when nothing changes', () => {
+  const body = '- [ ] already';
+  assert.equal(normalizeBodyCheckboxes(body), body);
+});
+
+test('normalizeBodyCheckboxes handles empty/undefined bodies', () => {
+  assert.equal(normalizeBodyCheckboxes(''), '');
+  assert.equal(normalizeBodyCheckboxes(undefined as unknown as string), undefined);
+});
+
+test('normalizeBodyCheckboxes does not touch list-like lines inside fenced code blocks', () => {
+  const body = '- a\n```\n- not a real item\n```\n- b';
+  assert.equal(
+    normalizeBodyCheckboxes(body),
+    '- [ ] a\n```\n- not a real item\n```\n- [ ] b'
+  );
+});
+
+test('normalizeBodyCheckboxes handles a tilde fence', () => {
+  const body = '~~~\n- code\n~~~\n- real';
+  assert.equal(normalizeBodyCheckboxes(body), '~~~\n- code\n~~~\n- [ ] real');
+});
+
+// ─── normalizeTreeCheckboxes ────────────────────────────────────────────────
+
+test('normalizeTreeCheckboxes mutates bodies recursively and reports change', () => {
+  const tree = {
+    body: '- a',
+    children: [
+      { body: '- b', children: [] as unknown[] },
+      { body: '- [x] done', children: [] as unknown[] },
+    ],
+  };
+  const changed = normalizeTreeCheckboxes(tree);
+  assert.equal(changed, true);
+  assert.equal(tree.body, '- [ ] a');
+  assert.equal((tree.children[0] as { body: string }).body, '- [ ] b');
+  assert.equal((tree.children[1] as { body: string }).body, '- [x] done');
+});
+
+test('normalizeTreeCheckboxes returns false when nothing needs migrating', () => {
+  const tree = {
+    body: '- [ ] a',
+    children: [{ body: 'plain', children: [] as unknown[] }],
+  };
+  assert.equal(normalizeTreeCheckboxes(tree), false);
 });

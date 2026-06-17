@@ -3,7 +3,7 @@
  *
  * IMPORTANT: This is a TypeScript port of the same functions living in
  * `media/mindmap.js` (getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
- * findBodyItemByLineIdx / reformatBodyLines). The webview script is served as a
+ * findBodyItemByLineIdx / reformatBodyLines / normalizeBodyCheckboxes). The webview script is served as a
  * raw static asset and is NOT bundled by esbuild, so the logic is intentionally
  * duplicated here for unit testing. If you change the parsing rules in one
  * place, mirror the change in the other or the on-disk model and the rendered
@@ -112,4 +112,74 @@ export function reformatBodyLines(
       return `${indStr}- ${text}`;
     }
   });
+}
+
+/**
+ * Normalize a heading's body so top-level (indent=0) plain bullet items become
+ * empty checkboxes (`- text` → `- [ ] text`). This mirrors the editor's data
+ * model where top-level body items are checkboxes and nested items (indent>0)
+ * are plain bullets, so on open we migrate legacy plain lists to the checkbox
+ * form the rest of the code expects.
+ *
+ * Strictly limited to existing top-level list items to honor NF-03:
+ *  - existing checkboxes (`- [ ]` / `- [x]` / `- [X]`) are left untouched
+ *    (checked state preserved);
+ *  - nested bullets (indent>0) stay plain bullets;
+ *  - non-list lines (paragraphs, prose, blank lines) are never touched;
+ *  - lines inside fenced code blocks (``` / ~~~) are never touched.
+ *
+ * Returns the body string unchanged (same reference semantics via equality) when
+ * nothing needs migrating, so callers can skip pointless writes.
+ */
+export function normalizeBodyCheckboxes(bodyText: string): string {
+  if (!bodyText) return bodyText;
+  const lines = bodyText.split('\n');
+  let fenceChar: '`' | '~' | null = null;
+  let changed = false;
+
+  const out = lines.map((line) => {
+    const fence = line.match(/^[ \t]*(`{3,}|~{3,})/);
+    if (fence) {
+      const ch = fence[1][0] as '`' | '~';
+      if (fenceChar === null) fenceChar = ch;
+      else if (fenceChar === ch) fenceChar = null;
+      return line;
+    }
+    if (fenceChar !== null) return line; // inside a code fence — never touch
+
+    // Top-level (indent=0) plain bullet that is NOT already a checkbox.
+    const m = line.match(/^-\s+(.*)$/);
+    if (!m) return line;
+    if (/^\[[ xX]\]\s/.test(m[1])) return line; // already a checkbox
+    changed = true;
+    return `- [ ] ${m[1]}`;
+  });
+
+  return changed ? out.join('\n') : bodyText;
+}
+
+/**
+ * Apply normalizeBodyCheckboxes to a node's body and recurse into children,
+ * mutating bodies in place. Returns true if any body changed (so the caller
+ * can decide whether a write-back is needed).
+ */
+export function normalizeTreeCheckboxes(
+  node: { body: string; children: Array<{ body: string; children: unknown[] }> }
+): boolean {
+  let changed = false;
+  const normalized = normalizeBodyCheckboxes(node.body);
+  if (normalized !== node.body) {
+    node.body = normalized;
+    changed = true;
+  }
+  for (const child of node.children) {
+    if (
+      normalizeTreeCheckboxes(
+        child as { body: string; children: Array<{ body: string; children: unknown[] }> }
+      )
+    ) {
+      changed = true;
+    }
+  }
+  return changed;
 }
