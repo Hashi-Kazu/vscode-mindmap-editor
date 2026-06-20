@@ -435,3 +435,145 @@ test('fence inside a nested heading body is scoped to that heading', () => {
   assert.equal(b.children[0].text, 'C');
   assert.equal(assertStable(input), input);
 });
+
+// ─── 新規追加テスト ──────────────────────────────────────────────────────────
+
+// R-01-01: H1〜H6全6段階の階層化
+test('H1 to H6 all six levels are parsed with correct level numbers', () => {
+  const input = '# A\n## B\n### C\n#### D\n##### E\n###### F\n';
+  const parsed = parseMarkdown(input, FILE);
+
+  const a = parsed.root.children[0];
+  assert.equal(a.text, 'A');
+  assert.equal(a.level, 1);
+
+  const b = a.children[0];
+  assert.equal(b.text, 'B');
+  assert.equal(b.level, 2);
+
+  const c = b.children[0];
+  assert.equal(c.text, 'C');
+  assert.equal(c.level, 3);
+
+  const d = c.children[0];
+  assert.equal(d.text, 'D');
+  assert.equal(d.level, 4);
+
+  const e = d.children[0];
+  assert.equal(e.text, 'E');
+  assert.equal(e.level, 5);
+
+  const f = e.children[0];
+  assert.equal(f.text, 'F');
+  assert.equal(f.level, 6);
+});
+
+// R-01-01: H6ノードを含む round-trip でレベルが保持される
+test('H6 node level is preserved through serialize then re-parse', () => {
+  const input = '# A\n## B\n### C\n#### D\n##### E\n###### F\n';
+  const out = assertStable(input);
+  const reparsed = parseMarkdown(out, FILE);
+
+  const f = reparsed.root.children[0]
+    .children[0].children[0].children[0].children[0].children[0];
+  assert.equal(f.text, 'F');
+  assert.equal(f.level, 6);
+});
+
+// R-01-02: H1なしファイルはファイル名がルートになる
+test('file without H1: root.text is filename, first child has level 2', () => {
+  const input = '## Section\n### Sub\n';
+  const parsed = parseMarkdown(input, FILE);
+
+  assert.equal(parsed.root.text, 'Doc');
+  assert.equal(parsed.root.level, 0);
+  assert.equal(parsed.root.children.length, 1);
+  assert.equal(parsed.root.children[0].level, 2);
+  assert.equal(parsed.root.children[0].text, 'Section');
+});
+
+// R-01-02: H1ありファイルの構造
+test('file with H1: root.text is filename, root child has level 1 with H1 text', () => {
+  const input = '# Title\n## Sub\n';
+  const parsed = parseMarkdown(input, FILE);
+
+  assert.equal(parsed.root.text, 'Doc');
+  assert.equal(parsed.root.level, 0);
+  assert.equal(parsed.root.children[0].level, 1);
+  assert.equal(parsed.root.children[0].text, 'Title');
+});
+
+// R-01-04, NF-02-01: 段落・コードブロック・チェックリストを含む本文の保持
+test('body with paragraphs, code block, and checklist is preserved through round-trip', () => {
+  const input = [
+    '# Head',
+    'first paragraph',
+    '',
+    'second paragraph',
+    '',
+    '```',
+    'code here',
+    '```',
+    '',
+    '- [ ] todo item',
+    '- [x] done item',
+    '',
+  ].join('\n');
+
+  const out = assertStable(input);
+  const node = parseMarkdown(out, FILE).root.children[0];
+  assert.ok(node.body.includes('first paragraph'));
+  assert.ok(node.body.includes('second paragraph'));
+  assert.ok(node.body.includes('```'));
+  assert.ok(node.body.includes('code here'));
+  assert.ok(node.body.includes('- [ ] todo item'));
+  assert.ok(node.body.includes('- [x] done item'));
+});
+
+// R-06-02: フロントマターなし＋collapsedPaths あり → frontmatter が書き込まれる
+test('no frontmatter + collapsedPaths serializes mindmap-collapse block', () => {
+  const input = '# A\n## B\n### C\n';
+  const parsed = parseMarkdown(input, FILE);
+  // B の collapse パスは filename-prefixed
+  const out = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    ['Doc/A/B'],
+    parsed.bodyItemCollapsePaths
+  );
+  assert.ok(out.includes('mindmap-collapse:'));
+  assert.ok(out.includes('  - "A/B"'));
+});
+
+// R-06-02: フロントマターなし＋collapsedPaths 空 → frontmatter ブロックが出力されない
+test('no frontmatter + empty collapsedPaths produces no frontmatter in output', () => {
+  const input = '# A\n## B\n';
+  const parsed = parseMarkdown(input, FILE);
+  const out = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    [],
+    []
+  );
+  assert.ok(!out.startsWith('---'));
+});
+
+// R-01-07/R-01-08: 見出し直後の本文は各ノードに格納される
+test('node with body has non-empty body field, node without body has empty body', () => {
+  const input = '# HasBody\nbody text\n## NoBody\n### AlsoHasBody\nsome content\n';
+  const parsed = parseMarkdown(input, FILE);
+
+  const hasBody = parsed.root.children[0];
+  assert.equal(hasBody.text, 'HasBody');
+  assert.notEqual(hasBody.body, '');
+
+  const noBody = hasBody.children[0];
+  assert.equal(noBody.text, 'NoBody');
+  assert.equal(noBody.body, '');
+
+  const alsoHasBody = noBody.children[0];
+  assert.equal(alsoHasBody.text, 'AlsoHasBody');
+  assert.notEqual(alsoHasBody.body, '');
+});

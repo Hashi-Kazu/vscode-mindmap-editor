@@ -246,3 +246,24 @@ test('normalizeTreeCheckboxes returns false when nothing needs migrating', () =>
   };
   assert.equal(normalizeTreeCheckboxes(tree), false);
 });
+
+// ─── 新規追加テスト ──────────────────────────────────────────────────────────
+
+// R-13-10: reformatBodyLines は子項目も含めて相対的にインデントが増える
+test('reformatBodyLines indent 0→2 shifts both parent and child lines', () => {
+  const lines = ['- [ ] parent', '  - child'];
+  const result = reformatBodyLines(lines, 0, 2);
+  assert.deepEqual(result, ['  - parent', '    - child']);
+});
+
+// R-13-12: normalizeBodyCheckboxes は既にすべてチェックボックスの場合は同一参照を返す
+test('normalizeBodyCheckboxes returns the same string reference when all items are already checkboxes', () => {
+  const body = '- [ ] a\n- [x] b';
+  const result = normalizeBodyCheckboxes(body);
+  assert.equal(result === body, true);
+});
+
+// R-13-01: getBodyItemTree は空文字列/空ボディで空配列を返す
+test('getBodyItemTree returns empty array for empty string', () => {
+  assert.deepEqual(getBodyItemTree(''), []);
+});

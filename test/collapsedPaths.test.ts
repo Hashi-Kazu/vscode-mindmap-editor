@@ -124,3 +124,34 @@ test('relative collapse path resolves under a different filename (rename safety)
   assert.equal(parsed.root.children[0].children[0].collapsed, true);
   assert.deepEqual(extractCollapsedPaths(parsed.root), ['Renamed/A/B']);
 });
+
+// ─── 新規追加テスト ──────────────────────────────────────────────────────────
+
+// R-06-01: 折りたたんでいないノードのパスは extractCollapsedPaths に含まれない
+test('extractCollapsedPaths returns empty array when all nodes are not collapsed', () => {
+  const d = node('D', 4);
+  const c = node('C', 3, [d]);
+  const b = node('B', 2, [c]);
+  const a = node('A', 1, [b]);
+  const root = node('Root', 0, [a]);
+
+  // すべて collapsed=false (デフォルト)
+  assert.deepEqual(extractCollapsedPaths(root), []);
+});
+
+// R-06-03: 複数の兄弟ノードが同時に折りたたまれる
+test('extractCollapsedPaths includes paths for multiple collapsed siblings', () => {
+  const a1child = node('A1child', 2);
+  const a2child = node('A2child', 2);
+  const a1 = node('A1', 1, [a1child]);
+  const a2 = node('A2', 1, [a2child]);
+  const root = node('Root', 0, [a1, a2]);
+
+  a1.collapsed = true;
+  a2.collapsed = true;
+
+  const paths = extractCollapsedPaths(root);
+  assert.ok(paths.includes('Root/A1'));
+  assert.ok(paths.includes('Root/A2'));
+  assert.equal(paths.length, 2);
+});
