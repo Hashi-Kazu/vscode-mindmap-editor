@@ -21,11 +21,14 @@ export function serializeToMarkdown(
     parts.push('');
   }
 
-  // Preamble (content before any heading). The trailing blank line that
-  // separates it from the first heading is added below via a single ''
-  // separator, so trim any blank lines the parser may have retained to keep
-  // serialize→parse→serialize idempotent.
-  const trimmedPreamble = preamble.replace(/\n+$/, '');
+  // Preamble (content before any heading). The blank line that separates the
+  // frontmatter from the preamble (and the preamble from the first heading) is
+  // added below via single '' separators, so trim both leading and trailing
+  // blank lines the parser may have retained. Stripping the leading blanks is
+  // essential when a frontmatter block precedes the preamble: the parser keeps
+  // the blank line that follows the closing '---' as part of the preamble, and
+  // without normalization it accumulates one extra blank line per round-trip.
+  const trimmedPreamble = preamble.replace(/^\n+/, '').replace(/\n+$/, '');
   if (trimmedPreamble.trim()) {
     parts.push(trimmedPreamble);
     parts.push('');

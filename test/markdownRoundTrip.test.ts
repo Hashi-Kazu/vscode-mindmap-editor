@@ -577,3 +577,224 @@ test('node with body has non-empty body field, node without body has empty body'
   assert.equal(alsoHasBody.text, 'AlsoHasBody');
   assert.notEqual(alsoHasBody.body, '');
 });
+
+// ─── 新規追加テスト 2 (v2.6.3) ───────────────────────────────────────────────
+
+// AT-06-02 / AT-15-04 / R-06-02, R-15-05: title + mindmap-collapse +
+// body-item-collapse の3ブロック共存がラウンドトリップで全て保全される
+test('title + mindmap-collapse + body-item-collapse coexist and survive round-trip', () => {
+  const input = [
+    '---',
+    'title: Combo',
+    'mindmap-collapse:',
+    '  - "A/B"',
+    'body-item-collapse:',
+    '  - "A::item"',
+    '---',
+    '',
+    '# A',
+    '- item',
+    '## B',
+    '### C',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  // 見出し collapse と本文 collapse が両方適用される
+  assert.equal(parsed.root.children[0].children[0].collapsed, true); // B
+  assert.deepEqual(parsed.bodyItemCollapsePaths, ['Doc/A::item']);
+
+  const out = assertStable(input);
+  assert.ok(out.includes('title: Combo'));
+  assert.ok(out.includes('mindmap-collapse:'));
+  assert.ok(out.includes('- "A/B"'));
+  assert.ok(out.includes('body-item-collapse:'));
+  assert.ok(out.includes('- "A::item"'));
+  // 旧プレフィックス形式に巻き戻らない
+  assert.ok(!out.includes('Doc/A'));
+});
+
+// AT-15-04 / R-15-05: 複数の body-item-collapse パスが順序を保って round-trip する
+test('multiple body-item-collapse paths preserve their order through round-trip', () => {
+  const input = [
+    '---',
+    'body-item-collapse:',
+    '  - "A::first"',
+    '  - "A::second"',
+    '---',
+    '',
+    '# A',
+    '- first',
+    '- second',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  assert.deepEqual(parsed.bodyItemCollapsePaths, ['Doc/A::first', 'Doc/A::second']);
+
+  const out = assertStable(input);
+  const firstIdx = out.indexOf('- "A::first"');
+  const secondIdx = out.indexOf('- "A::second"');
+  assert.ok(firstIdx !== -1 && secondIdx !== -1);
+  assert.ok(firstIdx < secondIdx, 'body-item-collapse order is not preserved');
+});
+
+// AT-06-02: serializeToMarkdown はブロックを常に mindmap-collapse →
+// body-item-collapse の順で書き出す（順序保全の固定点）
+test('serializer emits mindmap-collapse before body-item-collapse', () => {
+  const input = '# A\n- item\n## B\n';
+  const parsed = parseMarkdown(input, FILE);
+  const out = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    ['Doc/A'],
+    ['Doc/A::item']
+  );
+  const mmIdx = out.indexOf('mindmap-collapse:');
+  const biIdx = out.indexOf('body-item-collapse:');
+  assert.ok(mmIdx !== -1 && biIdx !== -1);
+  assert.ok(mmIdx < biIdx);
+});
+
+// AT-06-02 / NF-03: 既存フロントマターの未管理キー（title 等）は順序を保って
+// 残り、管理ブロックは末尾に追加される
+test('unmanaged frontmatter keys are kept and managed blocks are appended after them', () => {
+  const input = [
+    '---',
+    'title: Keep',
+    'author: Me',
+    '---',
+    '',
+    '# A',
+    '## B',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  const out = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    ['Doc/A'],
+    []
+  );
+  assert.ok(out.includes('title: Keep'));
+  assert.ok(out.includes('author: Me'));
+  // 未管理キーが collapse ブロックより前に残る
+  assert.ok(out.indexOf('author: Me') < out.indexOf('mindmap-collapse:'));
+});
+
+// AT-06-02: collapse 状態を解除して保存すると管理ブロックが消え、
+// 未管理キーのみのフロントマターになる
+test('removing all collapse state drops managed blocks but keeps other frontmatter', () => {
+  const input = [
+    '---',
+    'title: T',
+    'mindmap-collapse:',
+    '  - "A/B"',
+    '---',
+    '',
+    '# A',
+    '## B',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  // collapse なしで保存
+  const out = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    [],
+    []
+  );
+  assert.ok(out.includes('title: T'));
+  assert.ok(!out.includes('mindmap-collapse:'));
+});
+
+// AT-NF03 / NF-02-01: preamble + frontmatter が同時に存在しても、両方が
+// 正しい順序（frontmatter → preamble → 見出し）でラウンドトリップする
+test('frontmatter and preamble coexist and round-trip in the correct order', () => {
+  const input = [
+    '---',
+    'title: Has Preamble',
+    '---',
+    '',
+    'intro paragraph',
+    '',
+    '# A',
+    'body',
+    '',
+  ].join('\n');
+
+  const out = assertStable(input);
+  const fmEnd = out.indexOf('---', 3); // closing delimiter
+  const introIdx = out.indexOf('intro paragraph');
+  const headingIdx = out.indexOf('# A');
+  assert.ok(fmEnd !== -1 && introIdx !== -1 && headingIdx !== -1);
+  assert.ok(fmEnd < introIdx, 'frontmatter must come before preamble');
+  assert.ok(introIdx < headingIdx, 'preamble must come before the first heading');
+});
+
+// AT-13-08 / R-13-10: ネストした本文項目（チェックボックス + ダッシュ混在）が
+// ラウンドトリップで形式・チェック状態ともに保全される
+test('nested body items (checkbox + dash mix) survive round-trip unchanged', () => {
+  const input = [
+    '# A',
+    '- [ ] top todo',
+    '- [x] top done',
+    '  - nested dash',
+    '    - deeper dash',
+    '',
+  ].join('\n');
+
+  const out = assertStable(input);
+  const body = parseMarkdown(out, FILE).root.children[0].body;
+  assert.ok(body.includes('- [ ] top todo'));
+  assert.ok(body.includes('- [x] top done'));
+  assert.ok(body.includes('  - nested dash'));
+  assert.ok(body.includes('    - deeper dash'));
+});
+
+// AT-15-04 / R-15-05: body-item-collapse のみ（mindmap-collapse なし）でも
+// フロントマターが正しく構築されラウンドトリップする
+test('body-item-collapse alone (no mindmap-collapse) round-trips', () => {
+  const input = [
+    '---',
+    'body-item-collapse:',
+    '  - "A::item"',
+    '---',
+    '',
+    '# A',
+    '- item',
+    '  - child',
+    '',
+  ].join('\n');
+
+  const out = assertStable(input);
+  assert.ok(out.includes('body-item-collapse:'));
+  assert.ok(out.includes('- "A::item"'));
+  assert.ok(!out.includes('mindmap-collapse:'));
+});
+
+// AT-01-02: 同名の兄弟見出しがあってもツリー構造は両方保持され、
+// ラウンドトリップで失われない
+test('sibling headings with the same text are both preserved through round-trip', () => {
+  const input = ['# Dup', 'b1', '# Dup', 'b2', ''].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children.length, 2);
+  assert.equal(parsed.root.children[0].text, 'Dup');
+  assert.equal(parsed.root.children[1].text, 'Dup');
+
+  const out = assertStable(input);
+  assert.ok(out.includes('b1'));
+  assert.ok(out.includes('b2'));
+});
+
+// AT-01-01: 見出しテキスト前後の余分な空白は trim され、ラウンドトリップで
+// 安定する（# の後ろの複数スペースも 1 スペースに正規化）
+test('heading text whitespace is trimmed and stays stable across round-trip', () => {
+  const input = '#    Spaced Title   \nbody\n';
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children[0].text, 'Spaced Title');
+  assert.equal(assertStable(input), '# Spaced Title\nbody\n');
+});

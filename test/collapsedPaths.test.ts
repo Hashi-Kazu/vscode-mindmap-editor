@@ -155,3 +155,100 @@ test('extractCollapsedPaths includes paths for multiple collapsed siblings', () 
   assert.ok(paths.includes('Root/A2'));
   assert.equal(paths.length, 2);
 });
+
+// ─── 新規追加テスト 2 (v2.6.3) ───────────────────────────────────────────────
+
+// AT-06-02 / R-06-02: 折りたたまれた親とその折りたたまれた子の両方が
+// extractCollapsedPaths に含まれる（深さ優先順で親が先）
+test('extractCollapsedPaths includes both a collapsed parent and a collapsed descendant in DFS order', () => {
+  const c = node('C', 3, [node('D', 4)]);
+  const b = node('B', 2, [c]);
+  const a = node('A', 1, [b]);
+  const root = node('Root', 0, [a]);
+
+  a.collapsed = true;
+  c.collapsed = true;
+
+  assert.deepEqual(extractCollapsedPaths(root), ['Root/A', 'Root/A/B/C']);
+});
+
+// AT-06-02: ルートノード自身が collapsed でも、ルートはパスの起点なので
+// "Root" 単体のパスとして抽出される（子を持つため対象になる）
+test('extractCollapsedPaths includes the root path when the root itself is collapsed', () => {
+  const a = node('A', 1);
+  const root = node('Root', 0, [a]);
+  root.collapsed = true;
+  assert.deepEqual(extractCollapsedPaths(root), ['Root']);
+});
+
+// AT-06-03 / R-06-04: applyCollapsedPaths は存在しないパスを無視し、
+// 一致するノードのみ折りたたむ（誤爆しない）
+test('applyCollapsedPaths ignores non-matching paths and only collapses exact matches', () => {
+  const b = node('B', 2);
+  const a = node('A', 1, [b]);
+  const root = node('Root', 0, [a]);
+
+  applyCollapsedPaths(root, ['Root/A', 'Root/Nonexistent', 'A'], '');
+  assert.equal(a.collapsed, true);
+  assert.equal(b.collapsed, false); // "B" 単体パスでは一致しない
+  assert.equal(root.collapsed, false);
+});
+
+// AT-06-03: 同名の兄弟ノードでも、フルパスが異なれば独立して制御される
+test('applyCollapsedPaths distinguishes same-named nodes by their full path', () => {
+  const dupA = node('Dup', 2);
+  const dupB = node('Dup', 2);
+  const a = node('A', 1, [dupA]);
+  const b = node('B', 1, [dupB]);
+  const root = node('Root', 0, [a, b]);
+
+  applyCollapsedPaths(root, ['Root/A/Dup'], '');
+  assert.equal(dupA.collapsed, true);
+  assert.equal(dupB.collapsed, false);
+});
+
+// AT-06-02: apply→extract のラウンドトリップが複数の折りたたみパスで安定する
+test('apply then extract round-trips multiple collapse paths', () => {
+  // extractCollapsedPaths only emits paths for nodes that have children
+  // (collapsing a leaf is meaningless), so every node in `paths` must be a
+  // parent. Here A→B and D/E→F give both collapse targets a child.
+  const input = ['# A', '## B', '### C', '# D', '## E', '### F', ''].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  const paths = ['Doc/A', 'Doc/D/E'].sort();
+
+  applyCollapsedPaths(parsed.root, paths, '');
+  assert.deepEqual(extractCollapsedPaths(parsed.root).sort(), paths);
+});
+
+// AT-06-02 / R-06-02: フロントマターに mindmap-collapse と body-item-collapse が
+// 両方あっても見出し collapse パスのみが parseMarkdown で適用される
+test('parseMarkdown applies heading collapse independently of a body-item-collapse block', () => {
+  const input = [
+    '---',
+    'mindmap-collapse:',
+    '  - "A"',
+    'body-item-collapse:',
+    '  - "A::item"',
+    '---',
+    '',
+    '# A',
+    '- item',
+    '## B',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  const a = parsed.root.children[0];
+  assert.equal(a.text, 'A');
+  assert.equal(a.collapsed, true);
+  assert.deepEqual(parsed.bodyItemCollapsePaths, ['Doc/A::item']);
+});
+
+// AT-06-02: フロントマターが空（mindmap-collapse キーなし）の場合は
+// 折りたたみパスが抽出されず、どのノードも展開状態
+test('parseMarkdown with frontmatter but no collapse keys leaves all nodes expanded', () => {
+  const input = ['---', 'title: T', '---', '', '# A', '## B', ''].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  assert.equal(parsed.root.children[0].collapsed, false);
+  assert.deepEqual(extractCollapsedPaths(parsed.root), []);
+});

@@ -488,6 +488,7 @@
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
+| 2.6.3 | 2026-06-20 | frontmatter と preamble が共存する場合の round-trip 非冪等（preamble 先頭の空行が round-trip ごとに 1 行累積する）を修正。serializer で preamble 先頭の余分な空行を正規化（NF-02-01）。挙動修正のみ／要件変更なし |
 | 2.6.1 | 2026-06-19 | 現バージョン実装状況を仕様書へ反映。全仕様の検証ステータスを `■■□`（実装済・テスト未）へ更新。検証ステータス凡例セクションを追加。ヘッダのバージョン・最終更新を整合（挙動変更なし／ドキュメント整備）。`categories` を `Visualization` に絞り込み |
 | 2.6.0 | 2026-06-17 | アクティブエディタ切替時にビューアを自動追従する機能を追加（R-19-01〜R-19-05）。`extension.ts` の `onDidChangeActiveTextEditor` リスナー、`MindMapPanel.switchDocument` / `followActiveDocument` 追加。設定 `mindmap.followActiveEditor`（既定 `true`）を追加 |
 | 2.5.0 | 2026-06-17 | 本文項目のチェックボックス自動付与（マイグレーション）機能を追加（R-13-11）。パネル初回オープン時にトップレベルのプレーン箇条書きを `- [ ] ` へ正規化。`src/bodyItems.ts`（`normalizeBodyCheckboxes` / `normalizeTreeCheckboxes`）分離、`test/bodyItems.test.ts` 追加 |
