@@ -61,6 +61,11 @@ dist/             # ビルド出力（自動生成）
 - **検証**: `npm run build` と `npm test`。純粋ロジックを変えたら `test/` も更新する。
 - ユーザーの Markdown 本文（見出し以外）やフロントマター（折りたたみ状態）を失わない／書き換えない（NF-03）。
 
+## アーキテクチャ判断
+
+重要な設計判断は `docs/adr/` に記録されている。
+新機能実装や既存コードの変更前に、関連する ADR を確認すること。
+
 ## 注意事項
 
 - Marketplace への公開は GitHub Actions が自動で行う（main push 時。`publisher` は push まで担当）
