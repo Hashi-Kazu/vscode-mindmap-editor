@@ -545,19 +545,31 @@
     if (node.id === selectedId || selectedIds.has(node.id)) div.classList.add('selected');
     if (node.id === editingId)  div.classList.add('editing');
 
+    const isLeft = node._direction === 'left';
+    if (isLeft) div.classList.add('left-node');
+    let toggleBtn = null;
     if (node.children.length || getBodyItems(node.body).length) {
       const btn = document.createElement('button');
       btn.className = 'toggle-btn';
       btn.textContent = node.collapsed ? '▶' : '▼';
       btn.title = node.collapsed ? '展開' : '折りたたむ';
       btn.addEventListener('click', (e) => { e.stopPropagation(); toggleCollapse(node); });
-      div.appendChild(btn);
+      if (!isLeft) {
+        div.appendChild(btn);
+      } else {
+        toggleBtn = btn; // append after label for left-side nodes
+      }
     }
 
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = node.text;
     div.appendChild(label);
+
+    // Left-side nodes: toggle button goes after the label (right side of text)
+    if (isLeft && toggleBtn) {
+      div.appendChild(toggleBtn);
+    }
 
     // Body-dot for non-list body content
     const hasNonListBody = node.body && node.body.split('\n').some(l => l.trim() && !/^[\s]*-\s+/.test(l));
