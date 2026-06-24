@@ -97,7 +97,7 @@
   let _pendingEditId = null;
   let _pendingBodyEdit = null;     // { parentId, lineIdx }
   let selectedBodyItemKey = null;  // `${parentNodeId}:${lineIdx}`
-  let selectedBodyItemData = null; // { parentNodeId, parentNode, lineIdx, indent }
+  let selectedBodyItemData = null; // { parentNode, lineIdx, indent }
   let selectedBodyItemKeys = new Set(); // multi-selection for body items: Set of keys
   let selectedBodyItemsData = new Map(); // key -> { parentNode, lineIdx, indent }
 
@@ -739,9 +739,9 @@
             selectedBodyItemsData.set(selectedBodyItemKey, selectedBodyItemData);
           }
           selectedBodyItemKeys.add(key);
-          selectedBodyItemsData.set(key, makeBodyItemSelection(parentNode, item.lineIdx, item.indent));
+          selectedBodyItemsData.set(key, { parentNode, lineIdx: item.lineIdx, indent: item.indent });
           selectedBodyItemKey = key;
-          selectedBodyItemData = makeBodyItemSelection(parentNode, item.lineIdx, item.indent);
+          selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
           selectedId = null;
           selectedIds.clear();
           div.classList.add('selected');
@@ -755,7 +755,7 @@
         div.classList.add('selected');
         selectedId = null;
         selectedBodyItemKey = key;
-        selectedBodyItemData = makeBodyItemSelection(parentNode, item.lineIdx, item.indent);
+        selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
       }
     });
     div.addEventListener('dblclick', (e) => {
@@ -1011,8 +1011,7 @@
 
     // Delete
     if (e.key === 'Delete') {
-      const primaryBodySelection = resolveBodyItemSelection(selectedBodyItemData);
-      if (primaryBodySelection || selectedBodyItemKeys.size > 0) {
+      if (selectedBodyItemData || selectedBodyItemKeys.size > 0) {
         // Multi-body delete
         const keysToDelete = new Set([
           ...(selectedBodyItemKey ? [selectedBodyItemKey] : []),
@@ -1022,7 +1021,7 @@
           // Collect and sort by lineIdx descending to avoid index shift issues
           const toDelete = [];
           for (const k of keysToDelete) {
-            const data = resolveBodyItemSelection(selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null));
+            const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
             if (data) toDelete.push(data);
           }
           toDelete.sort((a, b) => b.lineIdx - a.lineIdx);
@@ -1035,8 +1034,8 @@
           selectedBodyItemKeys.clear();
           selectedBodyItemsData.clear();
           render();
-        } else if (primaryBodySelection) {
-          deleteBodyItem(primaryBodySelection.parentNode, primaryBodySelection.lineIdx);
+        } else if (selectedBodyItemData) {
+          deleteBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx);
         }
         return;
       }
@@ -1074,15 +1073,14 @@
 
     // F2: edit
     if (e.key === 'F2') {
-      const bodySelection = resolveBodyItemSelection(selectedBodyItemData);
-      if (bodySelection) {
+      if (selectedBodyItemData) {
         e.preventDefault();
         const nodeEl = document.querySelector(`.body-node[data-body-key="${selectedBodyItemKey}"]`);
         const lbl = nodeEl && nodeEl.querySelector('.body-node-label');
         // find the item
-        const allItems = getBodyItems(bodySelection.parentNode.body);
-        const item = allItems.find(i => i.lineIdx === bodySelection.lineIdx);
-        if (lbl && item) beginBodyItemEdit(bodySelection.parentNode, item, nodeEl, lbl);
+        const allItems = getBodyItems(selectedBodyItemData.parentNode.body);
+        const item = allItems.find(i => i.lineIdx === selectedBodyItemData.lineIdx);
+        if (lbl && item) beginBodyItemEdit(selectedBodyItemData.parentNode, item, nodeEl, lbl);
         return;
       }
       if (selectedId) {
@@ -1098,18 +1096,17 @@
     }
 
     // Tab: add child body item
-    const currentBodySelection = resolveBodyItemSelection(selectedBodyItemData);
-    if (e.key === 'Tab' && !e.shiftKey && currentBodySelection) {
+    if (e.key === 'Tab' && !e.shiftKey && selectedBodyItemData) {
       e.preventDefault();
-      const { parentNode, lineIdx, indent } = currentBodySelection;
+      const { parentNode, lineIdx, indent } = selectedBodyItemData;
       addBodyItem(parentNode, lineIdx, indent + 2);
       return;
     }
 
     // Enter: add sibling body item (after subtree)
-    if (e.key === 'Enter' && currentBodySelection) {
+    if (e.key === 'Enter' && selectedBodyItemData) {
       e.preventDefault();
-      const { parentNode, lineIdx, indent } = currentBodySelection;
+      const { parentNode, lineIdx, indent } = selectedBodyItemData;
       // find the item in tree to get its subtree last line
       const tree = getBodyItemTree(parentNode.body);
       const item = findBodyItemByLineIdx(tree, lineIdx);
@@ -1351,7 +1348,7 @@
     postStructuralEdit();
     _pendingBodyEdit = { parentId: parentNode.id, lineIdx: insertAt };
     selectedBodyItemKey = `${parentNode.id}:${insertAt}`;
-    selectedBodyItemData = makeBodyItemSelection(parentNode, insertAt, indent);
+    selectedBodyItemData = { parentNode, lineIdx: insertAt, indent };
     render();
   }
 
@@ -1497,7 +1494,7 @@
     contextTarget = null;
     contextBodyItem = { parentNode, item, key };
     selectedBodyItemKey = key;
-    selectedBodyItemData = makeBodyItemSelection(parentNode, item.lineIdx, item.indent);
+    selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
     selectedIds.clear();
     selectedBodyItemKeys.clear();
     selectedBodyItemsData.clear();
@@ -1770,7 +1767,7 @@
       if (selectedBodyItemKey) allKeys.add(selectedBodyItemKey);
       dragItems = [];
       for (const k of allKeys) {
-        const data = resolveBodyItemSelection(selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null));
+        const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
         if (!data) continue;
         const tree = getBodyItemTree(data.parentNode.body);
         const it = findBodyItemByLineIdx(tree, data.lineIdx);
@@ -2094,7 +2091,7 @@
     if (multiBodyKeys && multiBodyKeys.size > 1) {
       const items = [];
       for (const k of multiBodyKeys) {
-        const data = resolveBodyItemSelection(selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null));
+        const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
         if (!data) continue;
         const tree = getBodyItemTree(data.parentNode.body);
         const item = findBodyItemByLineIdx(tree, data.lineIdx);
@@ -2108,9 +2105,8 @@
       return;
     }
 
-    const currentBodyCopySelection = resolveBodyItemSelection(selectedBodyItemData);
-    if (currentBodyCopySelection) {
-      const { parentNode, lineIdx } = currentBodyCopySelection;
+    if (selectedBodyItemData) {
+      const { parentNode, lineIdx } = selectedBodyItemData;
       const tree = getBodyItemTree(parentNode.body);
       const item = findBodyItemByLineIdx(tree, lineIdx);
       if (!item) return;
@@ -2128,10 +2124,9 @@
     performCopy();
     if (!clipboard) return;
 
-    const currentBodyCutSelection = resolveBodyItemSelection(selectedBodyItemData);
-    if (clipboard.type === 'body' && currentBodyCutSelection) {
-      const cutParentId = currentBodyCutSelection.parentNode.id;
-      deleteBodyItem(currentBodyCutSelection.parentNode, currentBodyCutSelection.lineIdx);
+    if (clipboard.type === 'body' && selectedBodyItemData) {
+      const cutParentId = selectedBodyItemData.parentNode.id;
+      deleteBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx);
       // After cut, select the parent heading node so paste has a valid target
       selectedId = cutParentId;
     } else if (clipboard.type === 'body-multi') {
@@ -2142,7 +2137,7 @@
       ]);
       const toDelete = [];
       for (const k of keysToDelete) {
-        const data = resolveBodyItemSelection(selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null));
+        const data = selectedBodyItemsData.get(k) || (k === selectedBodyItemKey ? selectedBodyItemData : null);
         if (data) toDelete.push(data);
       }
       const cutParentId = toDelete.length > 0 ? toDelete[0].parentNode.id : null;
@@ -2183,14 +2178,13 @@
     if (!clipboard) return;
 
     if (clipboard.type === 'body') {
-      const currentBodyPasteSelection = resolveBodyItemSelection(selectedBodyItemData);
-      if (currentBodyPasteSelection) {
-        const { parentNode, lineIdx } = currentBodyPasteSelection;
+      if (selectedBodyItemData) {
+        const { parentNode, lineIdx } = selectedBodyItemData;
         const tree = getBodyItemTree(parentNode.body);
         const item = findBodyItemByLineIdx(tree, lineIdx);
         const lastLine = item ? bodyItemLastLineIdx(item) : lineIdx;
         // Paste as child of selected body item (indent + 2)
-        const pasteLines = reformatBodyLines(clipboard.lines, clipboard.indent, currentBodyPasteSelection.indent + 2);
+        const pasteLines = reformatBodyLines(clipboard.lines, clipboard.indent, selectedBodyItemData.indent + 2);
         const lines = (parentNode.body || '').split('\n');
         pushUndo();
         lines.splice(lastLine + 1, 0, ...pasteLines);
@@ -2212,9 +2206,8 @@
       }
     } else if (clipboard.type === 'body-multi') {
       // Paste multiple body items after the selected body item (as siblings) or at end of node
-      const currentBodyMultiPasteSelection = resolveBodyItemSelection(selectedBodyItemData);
-      const targetNode = currentBodyMultiPasteSelection
-        ? currentBodyMultiPasteSelection.parentNode
+      const targetNode = selectedBodyItemData
+        ? selectedBodyItemData.parentNode
         : (selectedId && root ? findById(root, selectedId) : null);
       if (!targetNode) return;
       pushUndo();
@@ -2222,12 +2215,12 @@
       // Determine base insertAt and destIndent (same logic as single-body paste)
       let insertAt;
       let destIndent;
-      if (currentBodyMultiPasteSelection) {
+      if (selectedBodyItemData) {
         const selTree = getBodyItemTree(targetNode.body);
-        const selItem = findBodyItemByLineIdx(selTree, currentBodyMultiPasteSelection.lineIdx);
-        const selLastLine = selItem ? bodyItemLastLineIdx(selItem) : currentBodyMultiPasteSelection.lineIdx;
+        const selItem = findBodyItemByLineIdx(selTree, selectedBodyItemData.lineIdx);
+        const selLastLine = selItem ? bodyItemLastLineIdx(selItem) : selectedBodyItemData.lineIdx;
         insertAt = selLastLine + 1;
-        destIndent = currentBodyMultiPasteSelection.indent + 2;
+        destIndent = selectedBodyItemData.indent + 2;
       } else {
         const allBodyItems = getBodyItems(targetNode.body);
         const lines = (targetNode.body || '').split('\n');
@@ -2391,21 +2384,6 @@
     scrollNodeIntoView(node);
   }
 
-  function makeBodyItemSelection(parentNode, lineIdx, indent) {
-    return { parentNodeId: parentNode.id, parentNode, lineIdx, indent };
-  }
-
-  function resolveBodyItemSelection(data) {
-    if (!data) return null;
-    const parentNodeId = data.parentNodeId || data.parentNode?.id;
-    if (!parentNodeId) return null;
-    const parentNode = root ? findById(root, parentNodeId) : data.parentNode;
-    if (!parentNode) return null;
-    const resolved = { parentNodeId, parentNode, lineIdx: data.lineIdx, indent: data.indent };
-    if (data === selectedBodyItemData) selectedBodyItemData = resolved;
-    return resolved;
-  }
-
   /** Flat list of visible body items (respects collapsed) for keyboard navigation */
   function getVisibleBodyItemsFlat(items) {
     const result = [];
@@ -2454,7 +2432,7 @@
     selectedId = null;
     selectedIds.clear();
     selectedBodyItemKey = key2;
-    selectedBodyItemData = makeBodyItemSelection(parentNode, item.lineIdx, item.indent);
+    selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
     selectedBodyItemKeys.clear();
     selectedBodyItemsData.clear();
     const el = document.querySelector(`.body-node[data-body-key="${key2}"]`);
@@ -2465,9 +2443,8 @@
     if (!root) return;
 
     // ── bodyItem selected ──────────────────────────────────────────────────
-    const currentBodyNavigationSelection = resolveBodyItemSelection(selectedBodyItemData);
-    if (selectedBodyItemKey && currentBodyNavigationSelection) {
-      const { parentNode, lineIdx } = currentBodyNavigationSelection;
+    if (selectedBodyItemKey && selectedBodyItemData) {
+      const { parentNode, lineIdx } = selectedBodyItemData;
 
       if (key === 'ArrowDown' || key === 'ArrowUp') {
         const tree = getBodyTree(parentNode);
@@ -2489,10 +2466,9 @@
           parentNode.collapsedBodyLines.add(cur.lineIdx);
           render();
           postBodyItemCollapseState();
-          selectBodyItem(parentNode, cur);
           return;
         }
-        const { indent } = currentBodyNavigationSelection;
+        const { indent } = selectedBodyItemData;
         if (indent === 0) {
           selectNode(parentNode);
         } else {

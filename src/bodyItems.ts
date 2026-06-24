@@ -90,31 +90,6 @@ export function findBodyItemByLineIdx(
   return null;
 }
 
-/** Find the direct parent body item of the item at lineIdx, if any. */
-export function findBodyItemParentByLineIdx(
-  tree: BodyItem[],
-  lineIdx: number
-): BodyItem | null {
-  for (const item of tree) {
-    if (item.children.some((child) => child.lineIdx === lineIdx)) return item;
-    const found = findBodyItemParentByLineIdx(item.children, lineIdx);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** Return only the direct siblings of the item at lineIdx. */
-export function getBodyItemSiblingsByLineIdx(
-  tree: BodyItem[],
-  lineIdx: number
-): BodyItem[] {
-  const current = findBodyItemByLineIdx(tree, lineIdx);
-  if (!current) return [];
-  if (current.indent === 0) return tree;
-  const parent = findBodyItemParentByLineIdx(tree, lineIdx);
-  return parent ? parent.children : [];
-}
-
 /**
  * Reformat body lines when moving between indent levels.
  * indent=0 → checkbox (- [ ] / - [x]); indent>0 → plain bullet (- text).

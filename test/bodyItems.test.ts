@@ -5,8 +5,6 @@ import {
   getBodyItemTree,
   bodyItemLastLineIdx,
   findBodyItemByLineIdx,
-  findBodyItemParentByLineIdx,
-  getBodyItemSiblingsByLineIdx,
   reformatBodyLines,
   normalizeBodyCheckboxes,
   normalizeTreeCheckboxes,
@@ -150,30 +148,6 @@ test('findBodyItemByLineIdx finds nested items', () => {
 test('findBodyItemByLineIdx returns null for missing lineIdx', () => {
   const tree = getBodyItemTree('- a\n- b');
   assert.equal(findBodyItemByLineIdx(tree, 99), null);
-});
-
-test('findBodyItemParentByLineIdx returns the direct parent for a nested item', () => {
-  const tree = getBodyItemTree('- a\n  - b\n    - c\n  - d');
-  assert.equal(findBodyItemParentByLineIdx(tree, 2)?.text, 'b');
-  assert.equal(findBodyItemParentByLineIdx(tree, 1)?.text, 'a');
-  assert.equal(findBodyItemParentByLineIdx(tree, 0), null);
-});
-
-// AT-12-10 / R-12-11: 本文項目の上下移動は同じ直接親の可視兄弟だけを対象にする
-test('getBodyItemSiblingsByLineIdx returns only direct siblings for nested items', () => {
-  const tree = getBodyItemTree('- a\n  - b\n    - c\n  - d\n- e');
-  assert.deepEqual(
-    getBodyItemSiblingsByLineIdx(tree, 2).map((item) => item.text),
-    ['c']
-  );
-  assert.deepEqual(
-    getBodyItemSiblingsByLineIdx(tree, 1).map((item) => item.text),
-    ['b', 'd']
-  );
-  assert.deepEqual(
-    getBodyItemSiblingsByLineIdx(tree, 4).map((item) => item.text),
-    ['a', 'e']
-  );
 });
 
 // ─── reformatBodyLines ──────────────────────────────────────────────────────
