@@ -7,11 +7,13 @@
   // ─── Constants ────────────────────────────────────────────────────────────
 
   const NODE_MIN_W    = 100;
-  const NODE_MAX_W    = 400;
+  const NODE_MAX_W    = 600;
   const BODY_MIN_W    = 80;
-  const BODY_MAX_W    = 360;
-  const NODE_H        = 46;
+  const BODY_MAX_W    = 540;
+  const NODE_H        = 46;    // heading node height (2-line)
+  const NODE_H_1LINE  = 32;    // heading node height (1-line, no wrapping)
   const BODY_H        = 42;    // body item node height (2-line capable)
+  const BODY_H_1LINE  = 30;    // body item node height (1-line)
   const BODY_V_GAP    = 8;     // gap between body items (same level)
   const H_GAP         = 20;    // gap: parent right edge → child left edge
   const BODY_ITEM_GAP = 12;    // gap: body item right edge → nested child
@@ -53,6 +55,29 @@
     const min = isBody ? BODY_MIN_W : NODE_MIN_W;
     const max = isBody ? BODY_MAX_W : NODE_MAX_W;
     return Math.max(min, Math.min(max, Math.ceil(tw) + pad));
+  }
+
+  /**
+   * Compute node height: returns 1-line height if text fits in a single line
+   * within the given node width, otherwise returns the 2-line height.
+   * nodeW is the already-computed node width (from measureNodeW).
+   */
+  function measureNodeH(text, isBody, nodeW, hasToggle) {
+    if (!text) return isBody ? BODY_H_1LINE : NODE_H_1LINE;
+    if (!_measureCtx) {
+      _measureCtx = document.createElement('canvas').getContext('2d');
+    }
+    const fontSize = isBody ? 12 : 13;
+    _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
+    const tw = _measureCtx.measureText(text).width;
+    // available label width = nodeW - padding - toggle
+    const pad = (isBody ? 44 : 50) + (hasToggle ? TOGGLE_W : 0);
+    const available = nodeW - pad;
+    // If text fits in one line within available width, use compact height
+    if (Math.ceil(tw) <= available) {
+      return isBody ? BODY_H_1LINE : NODE_H_1LINE;
+    }
+    return isBody ? BODY_H : NODE_H;
   }
 
   const LEVEL_COLORS = [
@@ -145,18 +170,23 @@
   }
 
   function computeBodyItemSubtreeH(item) {
-    if (item.collapsed || !item.children.length) { item._sh = BODY_H; return; }
+    // Compute _w and _h here so they are available for this tree instance
+    item._w = measureNodeW(item.text, true, item.children.length > 0);
+    item._h = measureNodeH(item.text, true, item._w, item.children.length > 0);
+    const h = item._h;
+    if (item.collapsed || !item.children.length) { item._sh = h; return; }
     item.children.forEach(computeBodyItemSubtreeH);
     const sum  = item.children.reduce((s, c) => s + c._sh, 0);
     const gaps = (item.children.length - 1) * BODY_V_GAP;
-    item._sh = Math.max(BODY_H, sum + gaps);
+    item._sh = Math.max(h, sum + gaps);
   }
 
   function assignBodyItemPositions(item, x, topY, direction) {
     item._direction = direction || 'right';
-    item._w = measureNodeW(item.text, true, item.children.length > 0);
+    item._w = item._w || measureNodeW(item.text, true, item.children.length > 0);
+    const h = item._h || BODY_H;
     item._x = x;
-    item._y = topY + item._sh / 2 - BODY_H / 2;
+    item._y = topY + item._sh / 2 - h / 2;
     if (item.collapsed) return;
     let cy = topY;
     for (const child of item.children) {
@@ -186,15 +216,23 @@
 
   // ─── Layout ───────────────────────────────────────────────────────────────
 
+  /** Pre-compute _w and _h for all heading nodes before layout. */
+  function precomputeSizes(node) {
+    node._w = measureNodeW(node.text, false);
+    node._h = measureNodeH(node.text, false, node._w, false);
+    node.children.forEach(precomputeSizes);
+  }
+
   function computeSubtreeH(node) {
-    if (node.collapsed) { node._sh = NODE_H; return; }
+    const h = node._h || NODE_H;
+    if (node.collapsed) { node._sh = h; return; }
     node.children.forEach(computeSubtreeH);
 
     const bodyTree = getBodyTree(node);
     bodyTree.forEach(computeBodyItemSubtreeH);
     const hasChildren = node.children.length > 0;
     const hasBody = bodyTree.length > 0;
-    if (!hasChildren && !hasBody) { node._sh = NODE_H; return; }
+    if (!hasChildren && !hasBody) { node._sh = h; return; }
 
     let totalH = 0;
     // children (headings) first / top
@@ -203,15 +241,16 @@
     // body items below
     if (hasBody) totalH += bodyTree.reduce((s, b) => s + b._sh, 0) + (bodyTree.length - 1) * BODY_V_GAP;
 
-    node._sh = Math.max(NODE_H, totalH);
+    node._sh = Math.max(h, totalH);
   }
 
   function assignPositions(node, x, topY, direction) {
     direction = direction || 'right';
     node._direction = direction;
-    node._w = measureNodeW(node.text, false);
+    node._w = node._w || measureNodeW(node.text, false);
+    const h = node._h || NODE_H;
     node._x = x;
-    node._y = topY + node._sh / 2 - NODE_H / 2;
+    node._y = topY + node._sh / 2 - h / 2;
     if (node.collapsed) { node._bodyItems = []; return; }
 
     const bodyTree = getBodyTree(node);
@@ -252,6 +291,7 @@
 
   function layout() {
     if (!root) return;
+    precomputeSizes(root);
     computeSubtreeH(root);
 
     // Separate left/right children
@@ -267,7 +307,7 @@
     // Compute total heights of left/right subtrees
     const leftH  = leftChildren.reduce((s, c)  => s + c._sh, 0) + Math.max(0, leftChildren.length  - 1) * V_GAP;
     const rightH = rightChildren.reduce((s, c) => s + c._sh, 0) + Math.max(0, rightChildren.length - 1) * V_GAP;
-    const totalH = Math.max(leftH, rightH, NODE_H);
+    const totalH = Math.max(leftH, rightH, root._h || NODE_H);
 
     // Width of widest left child (for root placement)
     let maxLeftChildW = 0;
@@ -280,9 +320,9 @@
     // We compute a rough left-subtree width = maxLeftChildW + H_GAP
     const leftSubtreeW = maxLeftChildW + H_GAP;
     const rootX = PAD + leftSubtreeW;
-    root._w = measureNodeW(root.text, false);
+    root._w = root._w || measureNodeW(root.text, false);
     root._x = rootX;
-    root._y = PAD + totalH / 2 - NODE_H / 2;
+    root._y = PAD + totalH / 2 - (root._h || NODE_H) / 2;
     root._direction = 'right';
     root._bodyItems = [];
 
@@ -310,7 +350,7 @@
         if (item._x < b.minX) b.minX = item._x;
         if (item._x + iw > b.maxX) b.maxX = item._x + iw;
         if (item._y < b.minY) b.minY = item._y;
-        if (item._y + BODY_H > b.maxY) b.maxY = item._y + BODY_H;
+        if (item._y + (item._h || BODY_H) > b.maxY) b.maxY = item._y + (item._h || BODY_H);
       }
       addBodyItemBounds(item.children, b);
     }
@@ -318,7 +358,7 @@
 
   function getBounds(node) {
     const nw = node._w || NODE_MIN_W;
-    const b = { minX: node._x, maxX: node._x + nw, minY: node._y, maxY: node._y + NODE_H };
+    const b = { minX: node._x, maxX: node._x + nw, minY: node._y, maxY: node._y + (node._h || NODE_H) };
     if (!node.collapsed) {
       if (node._bodyItems) addBodyItemBounds(node._bodyItems, b);
       for (const c of node.children) {
@@ -415,8 +455,8 @@
           x1 = item._x + (item._w || BODY_MIN_W);  // item right edge
           x2 = child._x;                            // child left edge
         }
-        const y1 = item._y + BODY_H / 2;
-        const y2 = child._y + BODY_H / 2;
+        const y1 = item._y + (item._h || BODY_H) / 2;
+        const y2 = child._y + (child._h || BODY_H) / 2;
         const cx = (x1 + x2) / 2;
         const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -449,8 +489,8 @@
           x1 = node._x + (node._w || NODE_MIN_W); // parent right edge
           x2 = item._x;                            // item left edge
         }
-        const y1 = node._y + NODE_H / 2;
-        const y2 = item._y + BODY_H / 2;
+        const y1 = node._y + (node._h || NODE_H) / 2;
+        const y2 = item._y + (item._h || BODY_H) / 2;
         const cx = (x1 + x2) / 2;
         const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -476,8 +516,8 @@
         x1 = node._x + (node._w || NODE_MIN_W); // parent right edge
         x2 = child._x;                           // child left edge
       }
-      const y1 = node._y + NODE_H / 2;
-      const y2 = child._y + NODE_H / 2;
+      const y1 = node._y + (node._h || NODE_H) / 2;
+      const y2 = child._y + (child._h || NODE_H) / 2;
       const cx = (x1 + x2) / 2;
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -498,7 +538,7 @@
     div.style.left = node._x + 'px';
     div.style.top  = node._y + 'px';
     div.style.width  = (node._w || NODE_MIN_W) + 'px';
-    div.style.height = NODE_H + 'px';
+    div.style.height = (node._h || NODE_H) + 'px';
 
     const col = LEVEL_COLORS[Math.min(node.level, LEVEL_COLORS.length - 1)];
     div.style.setProperty('--node-color', col);
@@ -625,7 +665,7 @@
     div.style.left   = item._x + 'px';
     div.style.top    = item._y + 'px';
     div.style.width  = (item._w || BODY_MIN_W) + 'px';
-    div.style.height = BODY_H + 'px';
+    div.style.height = (item._h || BODY_H) + 'px';
 
     if (key === selectedBodyItemKey || selectedBodyItemKeys.has(key)) div.classList.add('selected');
 
@@ -1555,7 +1595,7 @@
       const el = document.querySelector(`.node[data-id="${targetNode.id}"]`);
       if (el) el.classList.add(position === 'root-left' ? 'drop-root-left' : 'drop-root-right');
     } else {
-      const lineY = position === 'before' ? targetNode._y : targetNode._y + NODE_H;
+      const lineY = position === 'before' ? targetNode._y : targetNode._y + (targetNode._h || NODE_H);
       const sx = targetNode._x * transform.scale + transform.x;
       const sy = lineY * transform.scale + transform.y;
       dropIndicator.className = 'drop-line';
@@ -1593,7 +1633,7 @@
     // dragged can be a single node or an array of nodes
     const draggedArr = Array.isArray(dragged) ? dragged : [dragged];
     if (draggedArr.some(d => node.id === d.id || isDescendant(d, node))) return;
-    const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = NODE_H;
+    const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = node._h || NODE_H;
     if (sx >= nx - tolerance && sx <= nx + nw + tolerance && sy >= ny - tolerance && sy <= ny + nh + tolerance) {
       const relY = sy - ny;
       let pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
@@ -1751,7 +1791,7 @@
         if (el) el.classList.add('drop-over');
       } else {
         const item = result.targetItem;
-        const lineY = result.position === 'before' ? item._y : item._y + BODY_H;
+        const lineY = result.position === 'before' ? item._y : item._y + (item._h || BODY_H);
         const sx = item._x * transform.scale + transform.x;
         const sy = lineY * transform.scale + transform.y;
         dropIndicator.className = 'drop-line';
@@ -1788,7 +1828,7 @@
       // Skip the dragged item itself (match by owner + lineIdx)
       const isDragSrc = item._owner && item._owner.id === ds.parentNode.id && item.lineIdx === ds.lineIdx;
       if (!isDragSrc) {
-        const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = BODY_H;
+        const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = item._h || BODY_H;
         if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
@@ -1809,7 +1849,7 @@
       tagOwner(node._bodyItems, node);
       for (const item of node._bodyItems) {
         if (node.id === ds.parentNode.id && item.lineIdx === ds.lineIdx) continue;
-        const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = BODY_H;
+        const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = item._h || BODY_H;
         if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
@@ -1819,7 +1859,7 @@
         collectBodyDropFromItems(item.children, ds, sx, sy, cb);
       }
     }
-    const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = NODE_H;
+    const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = node._h || NODE_H;
     if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
       cb({ type: 'heading', targetNode: node },
          distToRect(sx, sy, nx, ny, nw, nh));
@@ -2296,7 +2336,7 @@
     const rect = stage.getBoundingClientRect(), margin = 60;
     const sx = node._x * transform.scale + transform.x;
     const sy = node._y * transform.scale + transform.y;
-    const sw = (node._w || NODE_MIN_W) * transform.scale, sh = NODE_H * transform.scale;
+    const sw = (node._w || NODE_MIN_W) * transform.scale, sh = (node._h || NODE_H) * transform.scale;
     let changed = false;
     if (sx < margin)                        { transform.x += margin - sx;                    changed = true; }
     else if (sx + sw > rect.width - margin) { transform.x -= sx + sw - (rect.width - margin); changed = true; }
