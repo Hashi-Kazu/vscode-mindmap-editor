@@ -2426,11 +2426,6 @@
     // ── bodyItem selected ──────────────────────────────────────────────────
     if (selectedBodyItemKey && selectedBodyItemData) {
       const { parentNode, lineIdx } = selectedBodyItemData;
-      const isLeft = (parentNode._direction || 'right') === 'left';
-      // "toward children" key: right for right-nodes, left for left-nodes
-      const towardChild  = isLeft ? 'ArrowLeft'  : 'ArrowRight';
-      // "toward parent"   key: left for right-nodes, right for left-nodes
-      const towardParent = isLeft ? 'ArrowRight' : 'ArrowLeft';
 
       if (key === 'ArrowDown' || key === 'ArrowUp') {
         const tree = getBodyTree(parentNode);
@@ -2442,17 +2437,26 @@
           // Move up to the parent heading node
           selectNode(parentNode);
         }
-      } else if (key === towardParent) {
+      } else if (key === 'ArrowLeft') {
+        const tree = getBodyTree(parentNode);
+        const flat = getVisibleBodyItemsFlat(tree);
+        const cur = flat.find(i => i.lineIdx === lineIdx);
+        if (cur && cur.children.length && !cur.collapsed) {
+          if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
+          parentNode.collapsedBodyLines.add(cur.lineIdx);
+          render();
+          postBodyItemCollapseState();
+          return;
+        }
         const { indent } = selectedBodyItemData;
         if (indent === 0) {
           selectNode(parentNode);
         } else {
-          const tree = getBodyTree(parentNode);
           const parent = findBodyItemParent(tree, lineIdx);
           if (parent) selectBodyItem(parentNode, parent);
           else selectNode(parentNode);
         }
-      } else if (key === towardChild) {
+      } else if (key === 'ArrowRight') {
         // Navigate into the first child body item (if any, expand if collapsed)
         const tree = getBodyTree(parentNode);
         const flat = getVisibleBodyItemsFlat(tree);
@@ -2476,26 +2480,21 @@
     const currentNode = selectedId ? findById(root, selectedId) : null;
     if (!currentNode) { selectNode(nodes[0]); return; }
 
-    const isLeft = (currentNode._direction || 'right') === 'left';
-    // "toward children" key: right for right-nodes, left for left-nodes
-    const towardChild  = isLeft ? 'ArrowLeft'  : 'ArrowRight';
-    // "toward parent"   key: left for right-nodes, right for left-nodes
-    const towardParent = isLeft ? 'ArrowRight' : 'ArrowLeft';
-
     const idx = nodes.indexOf(currentNode);
     if (key === 'ArrowDown') { if (idx < nodes.length - 1) selectNode(nodes[idx + 1]); }
     else if (key === 'ArrowUp') { if (idx > 0) selectNode(nodes[idx - 1]); }
-    else if (key === towardChild) {
-      const items = currentNode._bodyItems || getBodyItemTree(currentNode.body);
-      if (currentNode.children.length || items.length) {
+    else if (key === 'ArrowRight') {
+      const bodyTree = getBodyTree(currentNode);
+      if (currentNode.children.length || bodyTree.length) {
         if (currentNode.collapsed) { pushUndo(); currentNode.collapsed = false; render(); postCollapseState(); }
         if (currentNode.children.length) selectNode(currentNode.children[0]);
-        else if (items.length) {
-          selectBodyItem(currentNode, items[0]);
+        else if (bodyTree.length) {
+          selectBodyItem(currentNode, bodyTree[0]);
         }
       }
-    } else if (key === towardParent) {
-      if ((currentNode.children.length || getBodyItems(currentNode.body).length) && !currentNode.collapsed) {
+    } else if (key === 'ArrowLeft') {
+      const bodyTree = getBodyTree(currentNode);
+      if ((currentNode.children.length || bodyTree.length) && !currentNode.collapsed) {
         pushUndo(); currentNode.collapsed = true; render(); postCollapseState(); selectNode(currentNode);
       } else {
         const parent = findParent(root, currentNode);
