@@ -515,8 +515,8 @@ export class MindMapPanel {
     <button id="btn-zoom-out" title="縮小 (Ctrl+-)">－</button>
     <button id="btn-fit" title="画面にフィット (F)">⊡</button>
     <span class="sep"></span>
-    <button id="btn-expand-all" title="選択ノードを展開">▶ 展開</button>
-    <button id="btn-collapse-all" title="選択ノードを折りたたむ">▼ 折畳</button>
+    <button id="btn-expand-all" title="すべてのノードを展開">▶ 全展開</button>
+    <button id="btn-collapse-all" title="すべてのノードを折りたたむ">▼ 全折畳</button>
     <span class="sep"></span>
     <span id="checkbox-progress"></span>
     <span style="flex:1"></span>

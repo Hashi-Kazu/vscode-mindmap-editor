@@ -759,16 +759,47 @@
   document.getElementById('btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
   document.getElementById('btn-fit').addEventListener('click', fitView);
   document.getElementById('btn-expand-all').addEventListener('click', () => {
-    if (!selectedId || !root) return;
-    const node = findById(root, selectedId);
-    if (!node || (!node.children.length && !getBodyItems(node.body).length) || !node.collapsed) return;
-    pushUndo(); node.collapsed = false; render(); postCollapseState();
+    if (!root) return;
+    pushUndo();
+    // Expand all heading nodes (including root) recursively
+    function expandAll(node) {
+      node.collapsed = false;
+      node.children.forEach(expandAll);
+    }
+    expandAll(root);
+    // Clear all body item collapse states
+    collapsedBodyItems.clear();
+    render();
+    postCollapseState();
+    postBodyItemCollapseState();
   });
   document.getElementById('btn-collapse-all').addEventListener('click', () => {
-    if (!selectedId || !root) return;
-    const node = findById(root, selectedId);
-    if (!node || (!node.children.length && !getBodyItems(node.body).length) || node.collapsed) return;
-    pushUndo(); node.collapsed = true; render(); postCollapseState();
+    if (!root) return;
+    pushUndo();
+    // Collapse all heading nodes except root (collapsing root hides everything)
+    function collapseAll(node, isRoot) {
+      if (!isRoot) node.collapsed = true;
+      node.children.forEach(c => collapseAll(c, false));
+    }
+    collapseAll(root, true);
+    // Collapse all body items that have children
+    function collapseBodyItems(items, nodeId) {
+      for (const item of items) {
+        if (item.children && item.children.length) {
+          collapsedBodyItems.set(`${nodeId}:${item.lineIdx}`, true);
+        }
+        collapseBodyItems(item.children, nodeId);
+      }
+    }
+    function collapseAllBodyItems(node) {
+      const items = getBodyItemTree(node.body);
+      collapseBodyItems(items, node.id);
+      node.children.forEach(collapseAllBodyItems);
+    }
+    collapseAllBodyItems(root);
+    render();
+    postCollapseState();
+    postBodyItemCollapseState();
   });
 
   // ─── Keyboard handler ─────────────────────────────────────────────────────
