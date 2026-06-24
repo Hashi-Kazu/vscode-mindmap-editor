@@ -7,9 +7,9 @@
   // ─── Constants ────────────────────────────────────────────────────────────
 
   const NODE_MIN_W    = 100;
-  const NODE_MAX_W    = 600;
+  const NODE_MAX_W    = 500;
   const BODY_MIN_W    = 80;
-  const BODY_MAX_W    = 540;
+  const BODY_MAX_W    = 450;
   const NODE_H        = 46;    // heading node height (2-line)
   const NODE_H_1LINE  = 32;    // heading node height (1-line, no wrapping)
   const BODY_H        = 42;    // body item node height (2-line capable)
