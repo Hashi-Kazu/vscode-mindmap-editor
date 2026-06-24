@@ -848,11 +848,10 @@
     const w = bounds.maxX - bounds.minX + PAD * 2;
     const h = bounds.maxY - bounds.minY + PAD * 2;
     transform.scale = Math.min(rect.width / w, rect.height / h, 1.2);
-    // Center the root node horizontally/vertically in the viewport
-    const rootCx = (root._x + (root._w || NODE_MIN_W) / 2) * transform.scale;
-    const rootCy = (root._y + (root._h || NODE_H)    / 2) * transform.scale;
-    transform.x = rect.width  / 2 - rootCx;
-    transform.y = rect.height / 2 - rootCy;
+    const contentCx = ((bounds.minX + bounds.maxX) / 2) * transform.scale;
+    const contentCy = ((bounds.minY + bounds.maxY) / 2) * transform.scale;
+    transform.x = rect.width  / 2 - contentCx;
+    transform.y = rect.height / 2 - contentCy;
   }
 
   function fitView() {
