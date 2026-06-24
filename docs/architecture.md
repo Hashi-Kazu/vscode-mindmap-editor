@@ -1,7 +1,7 @@
 # マインドマップエディタ VS Code拡張機能 アーキテクチャ設計書
 
 **文書番号**: MME-ARCH-001  
-**元文書バージョン**: 2.6.0  
+**元文書バージョン**: 2.12.0  
 **作成日**: 2026-06-19  
 **ステータス**: 承認済み
 
@@ -57,6 +57,7 @@ src/                       # TypeScript ソース（Extension Host 側）
   conflictDetection.ts     # 楽観的同時実行制御の純粋ロジック（base比較・改行正規化・テスト対象）
   types.ts                 # MindMapNode・メッセージ型定義
   bodyItems.ts             # 本文項目の純粋ロジック（mindmap.js と同期・テスト対象）
+  navigation.ts            # 画面方向キー判定・本文選択再束縛の純粋ロジック（mindmap.js と同期・テスト対象）
 media/                     # Webview アセット
   mindmap.js               # レイアウト計算・描画・操作制御（動的サイズ・D&D・編集等）
   mindmap.css              # スタイル
@@ -64,6 +65,7 @@ test/                      # ユニットテスト（node:test）
   markdownRoundTrip.test.ts   # parse→serialize の冪等性・本文/フロントマター保全
   collapsedPaths.test.ts      # 折りたたみパスの抽出・適用ロジック
   bodyItems.test.ts           # 本文項目のパース・ツリー化・indent 変換ロジック
+  navigation.test.ts          # 水平ナビゲーション・更新後本文選択再束縛
   conflictDetection.test.ts   # コンフリクト検知（base比較・改行正規化・echo判定）ロジック
 esbuild.js                 # 本体ビルド（dist/extension.js を生成）
 esbuild.test.js            # test/*.test.ts を dist-test/ へトランスパイル（pretest）
@@ -87,9 +89,9 @@ npm test
 
 **テスト対象と範囲:**
 
-- `test/` のユニットテストは parser/serializer の round-trip・折りたたみパス・本文項目ロジック（`src/bodyItems.ts`）・コンフリクト検知ロジック（`src/conflictDetection.ts`）を自動検証する
+- `test/` のユニットテストは parser/serializer の round-trip・折りたたみパス・本文項目ロジック（`src/bodyItems.ts`）・画面方向ナビゲーションと本文選択再束縛（`src/navigation.ts`）・コンフリクト検知ロジック（`src/conflictDetection.ts`）を自動検証する
 - Webview 側の操作（D&D・編集・ズーム等）は対象外であり、受入テスト基準でマニュアル検証する
-- 本文項目ロジックは Webview（`media/mindmap.js`）が素のアセットとして配信されバンドル対象外のため、`src/bodyItems.ts` に同一ロジックを複製してテストする。両者の同期が必須（mindmap.js 側にコメント明記）
+- 本文項目ロジックとキーボードナビゲーション/選択再束縛ロジックは Webview（`media/mindmap.js`）が素のアセットとして配信されバンドル対象外のため、`src/bodyItems.ts` / `src/navigation.ts` に同一ロジックを複製してテストする。両者の同期が必須（mindmap.js 側にコメント明記）
 
 ---
 

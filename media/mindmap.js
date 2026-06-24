@@ -118,7 +118,8 @@
 
   // ─── Body Item Helpers ────────────────────────────────────────────────────
   // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
-  // findBodyItemByLineIdx / reformatBodyLines / normalizeBodyCheckboxes are mirrored in src/bodyItems.ts
+  // findBodyItemByLineIdx / reformatBodyLines / normalizeBodyCheckboxes are mirrored in src/bodyItems.ts,
+  // while horizontal navigation and body-selection rebinding helpers are mirrored in src/navigation.ts
   // (unit-tested there since this file isn't bundled by esbuild). Keep both in
   // sync — divergence corrupts lineIdx-based body operations.
 
@@ -163,6 +164,91 @@
       stack.push(item);
     }
     return roots;
+  }
+
+  function getHorizontalIntent(direction, key) {
+    const childKey = direction === 'left' ? 'ArrowLeft' : 'ArrowRight';
+    return key === childKey ? 'child' : 'parent';
+  }
+
+  function getNodeDirection(node) {
+    return node && (node._direction === 'left' || node.side === 'left') ? 'left' : 'right';
+  }
+
+  function sameHeadingSegment(node, segment) {
+    return node.text === segment.text && node.level === segment.level;
+  }
+
+  function sameBodyItemSegment(item, segment) {
+    return item.text === segment.text &&
+      item.type === segment.type &&
+      item.checked === segment.checked &&
+      item.indent === segment.indent;
+  }
+
+  function findHeadingPath(node, targetId, path) {
+    const nextPath = [...path, { text: node.text, level: node.level }];
+    if (node.id === targetId) return nextPath;
+    for (const child of node.children) {
+      const found = findHeadingPath(child, targetId, nextPath);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function findNodeById(node, targetId) {
+    if (node.id === targetId) return node;
+    for (const child of node.children) {
+      const found = findNodeById(child, targetId);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function findBodyItemPath(items, targetLineIdx, path) {
+    for (const item of items) {
+      const nextPath = [...path, {
+        text: item.text,
+        type: item.type,
+        checked: item.checked,
+        indent: item.indent
+      }];
+      if (item.lineIdx === targetLineIdx) return nextPath;
+      const found = findBodyItemPath(item.children, targetLineIdx, nextPath);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  function createBodyItemSelectionLocator(treeRoot, parentNodeId, lineIdx) {
+    const headingPath = findHeadingPath(treeRoot, parentNodeId, []);
+    const parentNode = findNodeById(treeRoot, parentNodeId);
+    if (!headingPath || !parentNode) return null;
+    const itemPath = findBodyItemPath(getBodyItemTree(parentNode.body), lineIdx, []);
+    return itemPath ? { headingPath, itemPath } : null;
+  }
+
+  function resolveHeadingCandidates(candidates, path, depth) {
+    const matches = candidates.filter(node => sameHeadingSegment(node, path[depth]));
+    if (depth === path.length - 1) return matches;
+    return resolveHeadingCandidates(matches.flatMap(node => node.children), path, depth + 1);
+  }
+
+  function resolveBodyItemCandidates(candidates, path, depth) {
+    const matches = candidates.filter(item => sameBodyItemSegment(item, path[depth]));
+    if (depth === path.length - 1) return matches;
+    return resolveBodyItemCandidates(matches.flatMap(item => item.children), path, depth + 1);
+  }
+
+  function resolveBodyItemSelection(treeRoot, locator) {
+    if (!locator || !locator.headingPath.length || !locator.itemPath.length) return null;
+    const headings = resolveHeadingCandidates([treeRoot], locator.headingPath, 0);
+    const matches = [];
+    for (const parentNode of headings) {
+      const items = resolveBodyItemCandidates(getBodyItemTree(parentNode.body), locator.itemPath, 0);
+      for (const item of items) matches.push({ parentNode, item });
+    }
+    return matches.length === 1 ? matches[0] : null;
   }
 
   function computeBodyItemSubtreeH(item) {
@@ -2425,6 +2511,18 @@
     return root.children.find(child => child.side === 'left') || null;
   }
 
+  function getFirstVisibleRightRootChild() {
+    if (!root || root.collapsed || !root.children.length) return null;
+    return root.children.find(child => child.side !== 'left') || null;
+  }
+
+  function clearBodyItemSelection() {
+    selectedBodyItemKey = null;
+    selectedBodyItemData = null;
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
+  }
+
   /** Select a body item by item object under parentNode */
   function selectBodyItem(parentNode, item) {
     const key2 = `${parentNode.id}:${item.lineIdx}`;
@@ -2457,38 +2555,37 @@
         } else if (key === 'ArrowUp' && curIdx > 0) {
           selectBodyItem(parentNode, siblings[curIdx - 1]);
         }
-      } else if (key === 'ArrowLeft') {
+      } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
         const tree = getBodyTree(parentNode);
         const flat = getVisibleBodyItemsFlat(tree);
         const cur = flat.find(i => i.lineIdx === lineIdx);
-        if (cur && cur.children.length && !cur.collapsed) {
+        if (!cur) return;
+        const intent = getHorizontalIntent(getNodeDirection(parentNode), key);
+        if (intent === 'child') {
+          if (cur.children.length) {
+            if (cur.collapsed) {
+              if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
+              parentNode.collapsedBodyLines.delete(cur.lineIdx);
+              render();
+              postBodyItemCollapseState();
+            }
+            selectBodyItem(parentNode, cur.children[0]);
+          }
+        } else if (cur.children.length && !cur.collapsed) {
           if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
           parentNode.collapsedBodyLines.add(cur.lineIdx);
           render();
           postBodyItemCollapseState();
           return;
-        }
-        const { indent } = selectedBodyItemData;
-        if (indent === 0) {
-          selectNode(parentNode);
         } else {
-          const parent = findBodyItemParent(tree, lineIdx);
-          if (parent) selectBodyItem(parentNode, parent);
-          else selectNode(parentNode);
-        }
-      } else if (key === 'ArrowRight') {
-        // Navigate into the first child body item (if any, expand if collapsed)
-        const tree = getBodyTree(parentNode);
-        const flat = getVisibleBodyItemsFlat(tree);
-        const cur = flat.find(i => i.lineIdx === lineIdx);
-        if (cur && cur.children.length) {
-          if (cur.collapsed) {
-            if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
-            parentNode.collapsedBodyLines.delete(cur.lineIdx);
-            render();
-            postBodyItemCollapseState();
+          const { indent } = selectedBodyItemData;
+          if (indent === 0) {
+            selectNode(parentNode);
+          } else {
+            const parent = findBodyItemParent(tree, lineIdx);
+            if (parent) selectBodyItem(parentNode, parent);
+            else selectNode(parentNode);
           }
-          selectBodyItem(parentNode, cur.children[0]);
         }
       }
       return;
@@ -2505,23 +2602,28 @@
       const idx = siblings.findIndex(node => node.id === currentNode.id);
       if (key === 'ArrowDown' && idx >= 0 && idx < siblings.length - 1) selectNode(siblings[idx + 1]);
       else if (key === 'ArrowUp' && idx > 0) selectNode(siblings[idx - 1]);
-    } else if (key === 'ArrowRight') {
-      const bodyTree = getBodyTree(currentNode);
-      if (currentNode.children.length || bodyTree.length) {
-        if (currentNode.collapsed) { pushUndo(); currentNode.collapsed = false; render(); postCollapseState(); }
-        if (currentNode.children.length) selectNode(currentNode.children[0]);
-        else if (bodyTree.length) {
-          selectBodyItem(currentNode, bodyTree[0]);
-        }
-      }
-    } else if (key === 'ArrowLeft') {
+    } else if (key === 'ArrowLeft' || key === 'ArrowRight') {
       if (currentNode.id === root.id) {
-        const leftChild = getFirstVisibleLeftRootChild();
-        if (leftChild) selectNode(leftChild);
+        const rootChild = key === 'ArrowLeft'
+          ? getFirstVisibleLeftRootChild()
+          : getFirstVisibleRightRootChild();
+        if (rootChild) selectNode(rootChild);
         return;
       }
       const bodyTree = getBodyTree(currentNode);
-      if ((currentNode.children.length || bodyTree.length) && !currentNode.collapsed) {
+      const intent = getHorizontalIntent(getNodeDirection(currentNode), key);
+      if (intent === 'child') {
+        if (currentNode.children.length || bodyTree.length) {
+          if (currentNode.collapsed) {
+            pushUndo();
+            currentNode.collapsed = false;
+            render();
+            postCollapseState();
+          }
+          if (currentNode.children.length) selectNode(currentNode.children[0]);
+          else selectBodyItem(currentNode, bodyTree[0]);
+        }
+      } else if ((currentNode.children.length || bodyTree.length) && !currentNode.collapsed) {
         pushUndo(); currentNode.collapsed = true; render(); postCollapseState(); selectNode(currentNode);
       } else {
         const parent = findParent(root, currentNode);
@@ -2541,10 +2643,33 @@
       // dragState.node references, causing findParent to return null and
       // silently failing the drop (the node would appear duplicated on retry).
       if (editingId || bodyEditing || dragState || bodyDragState) return;
+      const bodySelectionLocator = selectedBodyItemData && root
+        ? createBodyItemSelectionLocator(
+            root,
+            selectedBodyItemData.parentNode.id,
+            selectedBodyItemData.lineIdx
+          )
+        : null;
       root = msg.root;
       // Restore body item collapse state from frontmatter
       if (msg.bodyItemCollapsePaths) {
         applyBodyItemCollapsePaths(msg.bodyItemCollapsePaths);
+      }
+      if (bodySelectionLocator) {
+        const rebound = resolveBodyItemSelection(root, bodySelectionLocator);
+        clearBodyItemSelection();
+        if (rebound) {
+          selectedId = null;
+          selectedIds.clear();
+          selectedBodyItemKey = `${rebound.parentNode.id}:${rebound.item.lineIdx}`;
+          selectedBodyItemData = {
+            parentNode: rebound.parentNode,
+            lineIdx: rebound.item.lineIdx,
+            indent: rebound.item.indent
+          };
+        }
+      } else if (selectedBodyItemData) {
+        clearBodyItemSelection();
       }
       render();
     }
