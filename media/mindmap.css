@@ -220,6 +220,21 @@ body {
   box-shadow: 0 0 0 1.5px var(--node-color, var(--focus)), 0 2px 6px rgba(0,0,0,0.36);
 }
 
+.node[data-level="0"] {
+  box-shadow: 0 0 0 1.5px var(--node-color, var(--border)), 0 1px 3px rgba(0,0,0,0.28);
+}
+
+.node[data-level="0"]::before {
+  display: none;
+}
+
+.node[data-level="0"].selected {
+  box-shadow:
+    0 0 0 1.5px var(--node-bg),
+    0 0 0 3px var(--node-color, var(--focus)),
+    0 2px 6px rgba(0,0,0,0.36);
+}
+
 .node.drop-over {
   background: rgba(0, 122, 204, 0.18);
   box-shadow: 0 0 0 1.5px var(--focus);

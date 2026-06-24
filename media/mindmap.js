@@ -2406,6 +2406,25 @@
     return null;
   }
 
+  function getVisibleSiblingNodes(node) {
+    if (!root || !node) return [];
+    if (node.id === root.id) return [root];
+    const parent = findParent(root, node);
+    return parent ? parent.children.filter(child => child && child.id) : [];
+  }
+
+  function getBodyItemSiblings(tree, item) {
+    if (!item) return [];
+    if (item.indent === 0) return tree;
+    const parent = findBodyItemParent(tree, item.lineIdx);
+    return parent ? parent.children : [];
+  }
+
+  function getFirstVisibleLeftRootChild() {
+    if (!root || root.collapsed || !root.children.length) return null;
+    return root.children.find(child => child.side === 'left') || null;
+  }
+
   /** Select a body item by item object under parentNode */
   function selectBodyItem(parentNode, item) {
     const key2 = `${parentNode.id}:${item.lineIdx}`;
@@ -2429,13 +2448,14 @@
 
       if (key === 'ArrowDown' || key === 'ArrowUp') {
         const tree = getBodyTree(parentNode);
-        const flat = getVisibleBodyItemsFlat(tree);
-        const curIdx = flat.findIndex(i => i.lineIdx === lineIdx);
-        if (key === 'ArrowDown' && curIdx < flat.length - 1) selectBodyItem(parentNode, flat[curIdx + 1]);
-        else if (key === 'ArrowUp' && curIdx > 0) selectBodyItem(parentNode, flat[curIdx - 1]);
-        else if (key === 'ArrowUp' && curIdx === 0) {
-          // Move up to the parent heading node
-          selectNode(parentNode);
+        const currentItem = getVisibleBodyItemsFlat(tree).find(i => i.lineIdx === lineIdx);
+        if (!currentItem) return;
+        const siblings = getBodyItemSiblings(tree, currentItem);
+        const curIdx = siblings.findIndex(i => i.lineIdx === lineIdx);
+        if (key === 'ArrowDown' && curIdx >= 0 && curIdx < siblings.length - 1) {
+          selectBodyItem(parentNode, siblings[curIdx + 1]);
+        } else if (key === 'ArrowUp' && curIdx > 0) {
+          selectBodyItem(parentNode, siblings[curIdx - 1]);
         }
       } else if (key === 'ArrowLeft') {
         const tree = getBodyTree(parentNode);
@@ -2480,10 +2500,12 @@
     const currentNode = selectedId ? findById(root, selectedId) : null;
     if (!currentNode) { selectNode(nodes[0]); return; }
 
-    const idx = nodes.indexOf(currentNode);
-    if (key === 'ArrowDown') { if (idx < nodes.length - 1) selectNode(nodes[idx + 1]); }
-    else if (key === 'ArrowUp') { if (idx > 0) selectNode(nodes[idx - 1]); }
-    else if (key === 'ArrowRight') {
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      const siblings = getVisibleSiblingNodes(currentNode);
+      const idx = siblings.findIndex(node => node.id === currentNode.id);
+      if (key === 'ArrowDown' && idx >= 0 && idx < siblings.length - 1) selectNode(siblings[idx + 1]);
+      else if (key === 'ArrowUp' && idx > 0) selectNode(siblings[idx - 1]);
+    } else if (key === 'ArrowRight') {
       const bodyTree = getBodyTree(currentNode);
       if (currentNode.children.length || bodyTree.length) {
         if (currentNode.collapsed) { pushUndo(); currentNode.collapsed = false; render(); postCollapseState(); }
@@ -2493,6 +2515,11 @@
         }
       }
     } else if (key === 'ArrowLeft') {
+      if (currentNode.id === root.id) {
+        const leftChild = getFirstVisibleLeftRootChild();
+        if (leftChild) selectNode(leftChild);
+        return;
+      }
       const bodyTree = getBodyTree(currentNode);
       if ((currentNode.children.length || bodyTree.length) && !currentNode.collapsed) {
         pushUndo(); currentNode.collapsed = true; render(); postCollapseState(); selectNode(currentNode);
