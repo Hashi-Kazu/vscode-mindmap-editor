@@ -2371,31 +2371,94 @@
     scrollNodeIntoView(node);
   }
 
+  /** Flat list of visible body items (respects collapsed) for keyboard navigation */
+  function getVisibleBodyItemsFlat(items) {
+    const result = [];
+    for (const item of items) {
+      result.push(item);
+      if (!item.collapsed && item.children.length) {
+        result.push(...getVisibleBodyItemsFlat(item.children));
+      }
+    }
+    return result;
+  }
+
+  /** Select a body item by item object under parentNode */
+  function selectBodyItem(parentNode, item) {
+    const key2 = `${parentNode.id}:${item.lineIdx}`;
+    document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
+    selectedId = null;
+    selectedIds.clear();
+    selectedBodyItemKey = key2;
+    selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
+    const el = document.querySelector(`.body-node[data-body-key="${key2}"]`);
+    if (el) el.classList.add('selected');
+  }
+
   function navigateByKey(key) {
     if (!root) return;
+
+    // ── bodyItem selected ──────────────────────────────────────────────────
+    if (selectedBodyItemKey && selectedBodyItemData) {
+      const { parentNode, lineIdx } = selectedBodyItemData;
+      const isLeft = (parentNode._direction || 'right') === 'left';
+      // "toward children" key: right for right-nodes, left for left-nodes
+      const towardChild  = isLeft ? 'ArrowLeft'  : 'ArrowRight';
+      // "toward parent"   key: left for right-nodes, right for left-nodes
+      const towardParent = isLeft ? 'ArrowRight' : 'ArrowLeft';
+
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        const tree = getBodyTree(parentNode);
+        const flat = getVisibleBodyItemsFlat(tree);
+        const curIdx = flat.findIndex(i => i.lineIdx === lineIdx);
+        if (key === 'ArrowDown' && curIdx < flat.length - 1) selectBodyItem(parentNode, flat[curIdx + 1]);
+        else if (key === 'ArrowUp' && curIdx > 0) selectBodyItem(parentNode, flat[curIdx - 1]);
+        else if (key === 'ArrowUp' && curIdx === 0) {
+          // Move up to the parent heading node
+          selectNode(parentNode);
+        }
+      } else if (key === towardParent) {
+        // Navigate back to the parent heading node
+        selectNode(parentNode);
+      } else if (key === towardChild) {
+        // Navigate into the first child body item (if any visible)
+        const tree = getBodyTree(parentNode);
+        const flat = getVisibleBodyItemsFlat(tree);
+        const cur = flat.find(i => i.lineIdx === lineIdx);
+        if (cur && cur.children.length && !cur.collapsed) {
+          selectBodyItem(parentNode, cur.children[0]);
+        }
+      }
+      return;
+    }
+
+    // ── heading node selected ──────────────────────────────────────────────
     const nodes = getVisibleNodes();
     if (!nodes.length) return;
     const currentNode = selectedId ? findById(root, selectedId) : null;
     if (!currentNode) { selectNode(nodes[0]); return; }
+
+    const isLeft = (currentNode._direction || 'right') === 'left';
+    // "toward children" key: right for right-nodes, left for left-nodes
+    const towardChild  = isLeft ? 'ArrowLeft'  : 'ArrowRight';
+    // "toward parent"   key: left for right-nodes, right for left-nodes
+    const towardParent = isLeft ? 'ArrowRight' : 'ArrowLeft';
+
     const idx = nodes.indexOf(currentNode);
     if (key === 'ArrowDown') { if (idx < nodes.length - 1) selectNode(nodes[idx + 1]); }
     else if (key === 'ArrowUp') { if (idx > 0) selectNode(nodes[idx - 1]); }
-    else if (key === 'ArrowRight') {
+    else if (key === towardChild) {
       const items = currentNode._bodyItems || getBodyItemTree(currentNode.body);
       if (currentNode.children.length || items.length) {
         if (currentNode.collapsed) { pushUndo(); currentNode.collapsed = false; render(); postCollapseState(); }
         if (currentNode.children.length) selectNode(currentNode.children[0]);
         else if (items.length) {
-          const key2 = `${currentNode.id}:${items[0].lineIdx}`;
-          document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
-          selectedId = null;
-          selectedBodyItemKey = key2;
-          selectedBodyItemData = { parentNode: currentNode, lineIdx: items[0].lineIdx, indent: items[0].indent };
-          const el = document.querySelector(`.body-node[data-body-key="${key2}"]`);
-          if (el) el.classList.add('selected');
+          selectBodyItem(currentNode, items[0]);
         }
       }
-    } else if (key === 'ArrowLeft') {
+    } else if (key === towardParent) {
       if ((currentNode.children.length || getBodyItems(currentNode.body).length) && !currentNode.collapsed) {
         pushUndo(); currentNode.collapsed = true; render(); postCollapseState(); selectNode(currentNode);
       } else {
