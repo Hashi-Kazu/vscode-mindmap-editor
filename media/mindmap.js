@@ -300,6 +300,20 @@
       return;
     }
 
+    // Respect root collapse even in the left/right layout: when the root is
+    // collapsed, place only the root and skip all child/body-item placement
+    // (mirrors the early return in assignPositions, which the manual left/right
+    // branch below would otherwise bypass).
+    if (root.collapsed) {
+      root._w = root._w || measureNodeW(root.text, false);
+      const h = root._h || NODE_H;
+      root._x = PAD;
+      root._y = PAD;
+      root._direction = 'right';
+      root._bodyItems = [];
+      return;
+    }
+
     // Compute total heights of left/right subtrees
     const leftH  = leftChildren.reduce((s, c)  => s + c._sh, 0) + Math.max(0, leftChildren.length  - 1) * V_GAP;
     const rightH = rightChildren.reduce((s, c) => s + c._sh, 0) + Math.max(0, rightChildren.length - 1) * V_GAP;

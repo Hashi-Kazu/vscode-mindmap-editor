@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { MindMapNode } from './types';
+import { getBodyItems } from './bodyItems';
 
 let _idCounter = 0;
 function newId(): string {
@@ -182,7 +183,11 @@ export function applyCollapsedPaths(node: MindMapNode, paths: string[], parentPa
 export function extractCollapsedPaths(node: MindMapNode, parentPath = ''): string[] {
   const myPath = parentPath ? `${parentPath}/${node.text}` : node.text;
   const result: string[] = [];
-  if (node.collapsed && node.children.length > 0) {
+  // Match media/mindmap.js: a node is "collapsible" (and thus its collapsed
+  // state worth persisting) when it has heading children OR body list items.
+  // Previously this only checked children.length, so collapsing a node that has
+  // only body items was written but never restored after a re-parse.
+  if (node.collapsed && (node.children.length > 0 || getBodyItems(node.body).length > 0)) {
     result.push(myPath);
   }
   for (const child of node.children) {

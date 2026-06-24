@@ -295,7 +295,17 @@ export class MindMapPanel {
         };
         if (!this.lastRoot) break;
         applyCollapsedPaths(this.lastRoot, collapsedPaths, '');
-        await this.commitTree(collapsedPaths);
+        // Collapse state lives entirely in managed frontmatter and the written
+        // content is regenerated from the freshly-parsed cached tree, so this
+        // write must not be discarded by a false concurrent-change detection
+        // (which previously left the file expanded and the re-sync reverted the
+        // collapse). Suppress the conflict check for this managed-only write.
+        this.isOperating = true;
+        try {
+          await this.commitTree(collapsedPaths, true);
+        } finally {
+          this.isOperating = false;
+        }
         // Re-sync: keep the cached tree aligned with the serialized file.
         this.syncFromDocument(this.document);
         break;
@@ -346,7 +356,10 @@ export class MindMapPanel {
     this.document = await vscode.workspace.openTextDocument(this.document.uri);
   }
 
-  private async commitTree(collapsedPaths?: string[]): Promise<void> {
+  private async commitTree(
+    collapsedPaths?: string[],
+    skipConflictCheck = false
+  ): Promise<void> {
     if (!this.lastRoot) return;
     const collapsed = collapsedPaths ?? extractCollapsedPaths(this.lastRoot);
     const leftPaths = extractLeftPaths(this.lastRoot);
@@ -359,10 +372,10 @@ export class MindMapPanel {
       this.lastBodyItemCollapsePaths,
       leftPaths
     );
-    await this.applyDocumentEdit(newContent);
+    await this.applyDocumentEdit(newContent, skipConflictCheck);
   }
 
-  private applyDocumentEdit(newContent: string): Promise<void> {
+  private applyDocumentEdit(newContent: string, skipConflictCheck = false): Promise<void> {
     // Chain onto the queue so writes execute one at a time. Each write
     // re-computes fullRange from the live document, preventing the stale-range
     // bug where a concurrent write with the pre-edit length would leave tail
@@ -376,7 +389,11 @@ export class MindMapPanel {
       // out from under us (another person on a shared drive / after a Git pull,
       // or an external edit that arrived while isOperating suppressed the sync),
       // do not blindly clobber it.
-      if (await this.hasConcurrentChange(newContent)) {
+      // Managed-frontmatter-only writes (collapse state) are regenerated from
+      // the freshly-parsed cached tree and never touch user body/other
+      // frontmatter (NF-03), so a concurrent-change check here would only ever
+      // produce false positives that silently drop the collapse write. Skip it.
+      if (!skipConflictCheck && (await this.hasConcurrentChange(newContent))) {
         const resolved = await this.resolveConflict(newContent);
         if (!resolved) return; // user chose "load latest" — abandon this write
       }

@@ -244,6 +244,51 @@ test('parseMarkdown applies heading collapse independently of a body-item-collap
   assert.deepEqual(parsed.bodyItemCollapsePaths, ['Doc/A::item']);
 });
 
+// ─── 新規追加テスト 3 (本文項目のみノードの折りたたみ復元) ───────────────────
+
+// R-06-05 / SXX: 子見出しを持たず本文リスト項目だけを持つノードを折りたたんだ場合も
+// extractCollapsedPaths がパスを出力する（media/mindmap.js と判定を一致させる）。
+// 以前は children.length のみを見ていたため、本文項目のみのノードの折りたたみが
+// 書き出されず、再パースで展開状態に戻っていた。
+test('extractCollapsedPaths includes a collapsed node that has only body items (no child headings)', () => {
+  const a: MindMapNode = {
+    id: 'A',
+    text: 'A',
+    level: 1,
+    children: [],
+    collapsed: true,
+    body: '- [ ] task1\n- bullet2',
+  };
+  const root = node('Root', 0, [a]);
+
+  assert.deepEqual(extractCollapsedPaths(root), ['Root/A']);
+});
+
+// 本文も子もないノード（真のリーフ）は折りたたんでも対象外のまま
+test('extractCollapsedPaths still ignores a collapsed leaf node with neither children nor body items', () => {
+  const a: MindMapNode = {
+    id: 'A',
+    text: 'A',
+    level: 1,
+    children: [],
+    collapsed: true,
+    body: '',
+  };
+  const root = node('Root', 0, [a]);
+
+  assert.deepEqual(extractCollapsedPaths(root), []);
+});
+
+// 本文項目のみノードの apply→extract ラウンドトリップ
+test('apply then extract round-trips a body-item-only node collapse via markdown', () => {
+  const input = ['# A', '- [ ] item', '- bullet', ''].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  const paths = ['Doc/A'];
+
+  applyCollapsedPaths(parsed.root, paths, '');
+  assert.deepEqual(extractCollapsedPaths(parsed.root), paths);
+});
+
 // AT-06-02: フロントマターが空（mindmap-collapse キーなし）の場合は
 // 折りたたみパスが抽出されず、どのノードも展開状態
 test('parseMarkdown with frontmatter but no collapse keys leaves all nodes expanded', () => {
