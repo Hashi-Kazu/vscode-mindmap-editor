@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from './markdownParser';
+import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths, extractLeftPaths } from './markdownParser';
 import { serializeToMarkdown } from './markdownSerializer';
 import { detectConflict, normalizeText } from './conflictDetection';
 import { normalizeTreeCheckboxes } from './bodyItems';
@@ -26,6 +26,7 @@ export class MindMapPanel {
   private lastFrontmatter = '';
   private lastRoot: MindMapNode | null = null;
   private lastBodyItemCollapsePaths: string[] = [];
+  private lastLeftPaths: string[] = [];
 
   // The exact document text (newline-normalized) the cached tree above was last
   // parsed from. Used as the optimistic-concurrency "base": before a full
@@ -190,6 +191,7 @@ export class MindMapPanel {
     this.lastFrontmatter = '';
     this.lastRoot = null;
     this.lastBodyItemCollapsePaths = [];
+    this.lastLeftPaths = [];
     this.baseText = null;
     this.applyingEdit = false;
     this.isOperating = false;
@@ -205,7 +207,7 @@ export class MindMapPanel {
 
   private syncFromDocument(doc: vscode.TextDocument): void {
     const text = doc.getText();
-    const { root, frontmatter, preamble, bodyItemCollapsePaths } = parseMarkdown(
+    const { root, frontmatter, preamble, bodyItemCollapsePaths, leftPaths } = parseMarkdown(
       text,
       doc.uri.fsPath
     );
@@ -216,6 +218,7 @@ export class MindMapPanel {
     this.lastFrontmatter = frontmatter;
     this.lastPreamble = preamble;
     this.lastBodyItemCollapsePaths = bodyItemCollapsePaths;
+    this.lastLeftPaths = leftPaths;
     this.panel.webview.postMessage({ type: 'update', root, bodyItemCollapsePaths });
     // Keep the on-disk file in sync with what the webview displays.
     // Without this, source-editor edits remain in the dirty in-memory document
@@ -306,6 +309,27 @@ export class MindMapPanel {
         this.syncFromDocument(this.document);
         break;
       }
+
+      case 'setSide': {
+        const { id, side } = msg as { type: string; id: string; side: 'left' | 'right' };
+        if (!this.lastRoot) break;
+        // Apply side to the matching root-direct child and update leftPaths
+        for (const child of this.lastRoot.children) {
+          if (child.id === id) {
+            child.side = side;
+            break;
+          }
+        }
+        this.lastLeftPaths = extractLeftPaths(this.lastRoot);
+        this.isOperating = true;
+        try {
+          await this.commitTree();
+        } finally {
+          this.isOperating = false;
+        }
+        this.syncFromDocument(this.document);
+        break;
+      }
     }
   }
 
@@ -325,12 +349,15 @@ export class MindMapPanel {
   private async commitTree(collapsedPaths?: string[]): Promise<void> {
     if (!this.lastRoot) return;
     const collapsed = collapsedPaths ?? extractCollapsedPaths(this.lastRoot);
+    const leftPaths = extractLeftPaths(this.lastRoot);
+    this.lastLeftPaths = leftPaths;
     const newContent = serializeToMarkdown(
       this.lastRoot,
       this.lastFrontmatter,
       this.lastPreamble,
       collapsed,
-      this.lastBodyItemCollapsePaths
+      this.lastBodyItemCollapsePaths,
+      leftPaths
     );
     await this.applyDocumentEdit(newContent);
   }

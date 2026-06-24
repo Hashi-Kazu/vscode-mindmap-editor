@@ -5,7 +5,8 @@ export function serializeToMarkdown(
   frontmatter: string,
   preamble: string,
   collapsedPaths: string[],
-  bodyItemCollapsedPaths: string[] = []
+  bodyItemCollapsedPaths: string[] = [],
+  leftPaths: string[] = []
 ): string {
   const parts: string[] = [];
 
@@ -13,9 +14,10 @@ export function serializeToMarkdown(
   // survive a file rename. Strip the root prefix before writing to frontmatter.
   const relCollapsed = collapsedPaths.map(p => stripRootPrefix(p, root.text));
   const relBodyItem = bodyItemCollapsedPaths.map(p => stripBodyItemRootPrefix(p, root.text));
+  const relLeft = leftPaths.map(p => stripRootPrefix(p, root.text));
 
-  // Build frontmatter with updated collapse state
-  const fm = buildFrontmatter(frontmatter, relCollapsed, relBodyItem);
+  // Build frontmatter with updated collapse state and left-side paths
+  const fm = buildFrontmatter(frontmatter, relCollapsed, relBodyItem, relLeft);
   if (fm) {
     parts.push(fm);
     parts.push('');
@@ -63,7 +65,8 @@ function serializeNode(node: MindMapNode, parts: string[]): void {
 function buildFrontmatter(
   existing: string,
   collapsedPaths: string[],
-  bodyItemCollapsedPaths: string[] = []
+  bodyItemCollapsedPaths: string[] = [],
+  leftPaths: string[] = []
 ): string {
   const collapseBlock = collapsedPaths.length > 0
     ? `mindmap-collapse:\n${collapsedPaths.map(p => `  - "${p}"`).join('\n')}`
@@ -71,9 +74,12 @@ function buildFrontmatter(
   const bodyCollapseBlock = bodyItemCollapsedPaths.length > 0
     ? `body-item-collapse:\n${bodyItemCollapsedPaths.map(p => `  - "${p}"`).join('\n')}`
     : '';
+  const leftBlock = leftPaths.length > 0
+    ? `mindmap-left:\n${leftPaths.map(p => `  - "${p}"`).join('\n')}`
+    : '';
 
   if (!existing) {
-    const blocks = [collapseBlock, bodyCollapseBlock].filter(Boolean).join('\n');
+    const blocks = [collapseBlock, bodyCollapseBlock, leftBlock].filter(Boolean).join('\n');
     return blocks ? `---\n${blocks}\n---` : '';
   }
 
@@ -83,9 +89,10 @@ function buildFrontmatter(
     .replace(/\n---$/, '')
     .replace(/mindmap-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
     .replace(/body-item-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
+    .replace(/mindmap-left:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
     .trim();
 
-  const newInner = [inner, collapseBlock, bodyCollapseBlock].filter(Boolean).join('\n');
+  const newInner = [inner, collapseBlock, bodyCollapseBlock, leftBlock].filter(Boolean).join('\n');
   return newInner ? `---\n${newInner}\n---` : '';
 }
 

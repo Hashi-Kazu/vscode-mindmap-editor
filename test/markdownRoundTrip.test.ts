@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMarkdown, extractCollapsedPaths } from '../src/markdownParser';
+import { parseMarkdown, extractCollapsedPaths, extractLeftPaths } from '../src/markdownParser';
 import { serializeToMarkdown } from '../src/markdownSerializer';
 
 const FILE = '/tmp/Doc.md';
@@ -9,12 +9,14 @@ const FILE = '/tmp/Doc.md';
 function roundTrip(input: string): string {
   const parsed = parseMarkdown(input, FILE);
   const collapsedPaths = extractCollapsedPaths(parsed.root);
+  const leftPaths = extractLeftPaths(parsed.root);
   return serializeToMarkdown(
     parsed.root,
     parsed.frontmatter,
     parsed.preamble,
     collapsedPaths,
-    parsed.bodyItemCollapsePaths
+    parsed.bodyItemCollapsePaths,
+    leftPaths
   );
 }
 
@@ -797,4 +799,140 @@ test('heading text whitespace is trimmed and stays stable across round-trip', ()
   const parsed = parseMarkdown(input, FILE);
   assert.equal(parsed.root.children[0].text, 'Spaced Title');
   assert.equal(assertStable(input), '# Spaced Title\nbody\n');
+});
+
+// ─── mindmap-left ラウンドトリップテスト (R-20) ──────────────────────────────
+
+// S20-01: mindmap-left に記載された H1 ノードに side='left' が付与される
+test('mindmap-left paths are parsed and side=left applied to matching H1 nodes', () => {
+  const input = [
+    '---',
+    'mindmap-left:',
+    '  - "Left Topic"',
+    '---',
+    '',
+    '# Left Topic',
+    '## Child',
+    '# Right Topic',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  const leftTopic  = parsed.root.children[0];
+  const rightTopic = parsed.root.children[1];
+  assert.equal(leftTopic.text,  'Left Topic');
+  assert.equal(leftTopic.side,  'left');
+  assert.equal(rightTopic.text, 'Right Topic');
+  assert.equal(rightTopic.side, 'right');
+});
+
+// S20-02: mindmap-left がないファイルはすべての H1 ノードが side='right'
+test('without mindmap-left all H1 nodes get side=right', () => {
+  const input = '# A\n## AA\n# B\n';
+  const parsed = parseMarkdown(input, FILE);
+  for (const child of parsed.root.children) {
+    assert.equal(child.side, 'right');
+  }
+});
+
+// S20-03: mindmap-left のラウンドトリップ（書き出し→読み込み→書き出しが等価）
+test('mindmap-left round-trips stably', () => {
+  const input = [
+    '---',
+    'mindmap-left:',
+    '  - "Left Topic"',
+    '---',
+    '',
+    '# Left Topic',
+    '# Right Topic',
+    '',
+  ].join('\n');
+
+  const once = roundTrip(input);
+  const twice = roundTrip(once);
+  assert.equal(twice, once, 'mindmap-left round-trip is not idempotent');
+  assert.ok(once.includes('mindmap-left:'));
+  assert.ok(once.includes('- "Left Topic"'));
+  assert.ok(!once.includes('Doc/'));
+});
+
+// S20-04: extractLeftPaths はルート直下の side='left' ノードのパスを返す
+test('extractLeftPaths returns filename-prefixed paths for side=left H1 nodes', () => {
+  const input = [
+    '---',
+    'mindmap-left:',
+    '  - "Left Topic"',
+    '  - "Another Left"',
+    '---',
+    '',
+    '# Left Topic',
+    '# Another Left',
+    '# Right',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  const leftPaths = extractLeftPaths(parsed.root);
+  assert.deepEqual(leftPaths.sort(), ['Doc/Another Left', 'Doc/Left Topic'].sort());
+});
+
+// S20-05: side='left' が消えると mindmap-left ブロックも消える
+test('removing all left sides drops the mindmap-left block', () => {
+  const input = [
+    '---',
+    'mindmap-left:',
+    '  - "Left Topic"',
+    '---',
+    '',
+    '# Left Topic',
+    '# Right Topic',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  // Remove left side from all nodes
+  for (const child of parsed.root.children) {
+    child.side = 'right';
+  }
+  const out = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    [],
+    [],
+    []
+  );
+  assert.ok(!out.includes('mindmap-left:'));
+});
+
+// S20-06: mindmap-left と mindmap-collapse が共存してラウンドトリップする
+test('mindmap-left and mindmap-collapse coexist through round-trip', () => {
+  const input = [
+    '---',
+    'mindmap-collapse:',
+    '  - "Right/Sub"',
+    'mindmap-left:',
+    '  - "Left"',
+    '---',
+    '',
+    '# Left',
+    '# Right',
+    '## Sub',
+    '### Deep',
+    '',
+  ].join('\n');
+
+  const parsed = parseMarkdown(input, FILE);
+  // Check parse
+  assert.equal(parsed.root.children[0].side, 'left');
+  assert.equal(parsed.root.children[1].side, 'right');
+  const sub = parsed.root.children[1].children[0];
+  assert.equal(sub.collapsed, true);
+
+  const once = roundTrip(input);
+  const twice = roundTrip(once);
+  assert.equal(twice, once);
+  assert.ok(once.includes('mindmap-left:'));
+  assert.ok(once.includes('- "Left"'));
+  assert.ok(once.includes('mindmap-collapse:'));
 });

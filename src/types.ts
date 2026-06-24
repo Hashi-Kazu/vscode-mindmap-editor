@@ -5,6 +5,7 @@ export interface MindMapNode {
   children: MindMapNode[];
   collapsed: boolean;
   body: string;   // non-heading content lines after this heading
+  side?: 'left' | 'right';  // layout side (root's direct H1 children only)
 }
 
 // Messages: extension → webview
@@ -19,4 +20,5 @@ export type WebviewMessage =
   | { type: 'renameNode'; id: string; newText: string }
   | { type: 'saveCollapseState'; collapsedPaths: string[] }
   | { type: 'editBody'; id: string; body: string }
-  | { type: 'saveBodyItemCollapseState'; paths: string[] };
+  | { type: 'saveBodyItemCollapseState'; paths: string[] }
+  | { type: 'setSide'; id: string; side: 'left' | 'right' };

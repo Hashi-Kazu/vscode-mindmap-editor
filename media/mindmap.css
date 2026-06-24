@@ -225,6 +225,16 @@ body {
   box-shadow: 0 0 0 1.5px var(--focus);
 }
 
+/* Left/right zone highlight when dragging to root */
+.node.drop-root-left {
+  background: linear-gradient(to right, rgba(0, 122, 204, 0.28) 50%, transparent 50%);
+  box-shadow: 0 0 0 1.5px var(--focus);
+}
+.node.drop-root-right {
+  background: linear-gradient(to left, rgba(0, 122, 204, 0.28) 50%, transparent 50%);
+  box-shadow: 0 0 0 1.5px var(--focus);
+}
+
 /* Root / H1 — slightly bolder text only */
 .node[data-level="0"],
 .node[data-level="1"] {

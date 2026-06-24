@@ -13,6 +13,7 @@ export interface ParseResult {
   frontmatter: string;            // raw frontmatter block including --- delimiters
   preamble: string;               // lines before any heading (after frontmatter)
   bodyItemCollapsePaths: string[]; // body-item-collapse paths from frontmatter
+  leftPaths: string[];            // mindmap-left paths from frontmatter (root-relative)
 }
 
 export function parseMarkdown(content: string, filepath: string): ParseResult {
@@ -33,6 +34,7 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
     }
   }
   const bodyItemCollapsePathsRaw = parseBodyItemCollapsePaths(frontmatter);
+  const leftPathsRaw = parseLeftPaths(frontmatter);
 
   // Split body into sections: each section = { level, text, bodyLines }
   const sections: Section[] = [];
@@ -83,6 +85,8 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   const bodyItemCollapsePaths = bodyItemCollapsePathsRaw.map(p =>
     addBodyItemRootPrefix(p, baseName)
   );
+  // mindmap-left paths: stored relative to root (without filename prefix)
+  const leftPaths = leftPathsRaw.map(p => addRootPrefix(p, baseName));
 
   // Build tree using a stack
   const stack: MindMapNode[] = [root];
@@ -101,8 +105,9 @@ export function parseMarkdown(content: string, filepath: string): ParseResult {
   }
 
   applyCollapsedPaths(root, collapsedPaths, '');
+  applyLeftPaths(root, leftPaths);
 
-  return { root, frontmatter, preamble, bodyItemCollapsePaths };
+  return { root, frontmatter, preamble, bodyItemCollapsePaths, leftPaths };
 }
 
 /**
@@ -137,6 +142,15 @@ function makeNode(text: string, level: number, bodyLines: string[]): MindMapNode
     collapsed: false,
     body: bodyLines.join('\n'),
   };
+}
+
+function parseLeftPaths(frontmatter: string): string[] {
+  const m = frontmatter.match(/mindmap-left:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
+  if (!m) return [];
+  return m[1]
+    .split('\n')
+    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').trim())
+    .filter(Boolean);
 }
 
 function parseBodyItemCollapsePaths(frontmatter: string): string[] {
@@ -175,4 +189,25 @@ export function extractCollapsedPaths(node: MindMapNode, parentPath = ''): strin
     result.push(...extractCollapsedPaths(child, myPath));
   }
   return result;
+}
+
+/**
+ * Apply side='left' to root's direct children whose paths are in leftPaths.
+ * All other direct children get side='right'. H2+ descendants inherit parent's side
+ * (not set here; layout code propagates downward at render time).
+ */
+export function applyLeftPaths(root: MindMapNode, leftPaths: string[]): void {
+  for (const child of root.children) {
+    const childPath = `${root.text}/${child.text}`;
+    child.side = leftPaths.includes(childPath) ? 'left' : 'right';
+  }
+}
+
+/**
+ * Extract the filename-prefixed paths of root's direct children that have side='left'.
+ */
+export function extractLeftPaths(root: MindMapNode): string[] {
+  return root.children
+    .filter(c => c.side === 'left')
+    .map(c => `${root.text}/${c.text}`);
 }

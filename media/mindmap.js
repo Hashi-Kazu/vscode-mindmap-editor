@@ -152,14 +152,23 @@
     item._sh = Math.max(BODY_H, sum + gaps);
   }
 
-  function assignBodyItemPositions(item, x, topY) {
+  function assignBodyItemPositions(item, x, topY, direction) {
+    item._direction = direction || 'right';
     item._w = measureNodeW(item.text, true, item.children.length > 0);
     item._x = x;
     item._y = topY + item._sh / 2 - BODY_H / 2;
     if (item.collapsed) return;
     let cy = topY;
     for (const child of item.children) {
-      assignBodyItemPositions(child, x + item._w + BODY_ITEM_GAP, cy);
+      const childX = direction === 'left'
+        ? x - BODY_ITEM_GAP - child._w  // temporarily measure child w
+        : x + item._w + BODY_ITEM_GAP;
+      // For left direction we'll recompute after measuring child width
+      assignBodyItemPositions(child, x + item._w + BODY_ITEM_GAP, cy, direction);
+      if (direction === 'left') {
+        // Re-place child to the left of item
+        child._x = x - BODY_ITEM_GAP - (child._w || BODY_MIN_W);
+      }
       cy += child._sh + BODY_V_GAP;
     }
   }
@@ -197,7 +206,9 @@
     node._sh = Math.max(NODE_H, totalH);
   }
 
-  function assignPositions(node, x, topY) {
+  function assignPositions(node, x, topY, direction) {
+    direction = direction || 'right';
+    node._direction = direction;
     node._w = measureNodeW(node.text, false);
     node._x = x;
     node._y = topY + node._sh / 2 - NODE_H / 2;
@@ -208,16 +219,33 @@
     node._bodyItems = bodyTree; // store tree roots (with collapse state applied)
 
     let cy = topY;
-    const childX = x + node._w + H_GAP;
+    // heading children: childX depends on direction
+    const childX = direction === 'left'
+      ? x - H_GAP  // placeholder; actual x computed per child after measuring child._w
+      : x + node._w + H_GAP;
     // heading children first (top)
     for (const child of node.children) {
-      assignPositions(child, childX, cy);
+      if (direction === 'left') {
+        // Measure child width first, then place to the left of parent
+        child._w = measureNodeW(child.text, false);
+        assignPositions(child, x - H_GAP - child._w, cy, 'left');
+      } else {
+        assignPositions(child, childX, cy, 'right');
+      }
       cy += child._sh + V_GAP;
     }
     if (node.children.length > 0 && bodyTree.length > 0) cy += V_GAP - BODY_V_GAP;
-    // body items below
+    // body items below (same direction as heading)
+    const bodyX = direction === 'left'
+      ? x - H_GAP  // placeholder; assignBodyItemPositions adjusts per item
+      : x + node._w + H_GAP;
     for (const item of bodyTree) {
-      assignBodyItemPositions(item, childX, cy);
+      if (direction === 'left') {
+        item._w = measureNodeW(item.text, true, item.children.length > 0);
+        assignBodyItemPositions(item, x - H_GAP - item._w, cy, 'left');
+      } else {
+        assignBodyItemPositions(item, bodyX, cy, 'right');
+      }
       cy += item._sh + BODY_V_GAP;
     }
   }
@@ -225,7 +253,54 @@
   function layout() {
     if (!root) return;
     computeSubtreeH(root);
-    assignPositions(root, PAD, PAD);
+
+    // Separate left/right children
+    const leftChildren  = root.children.filter(c => c.side === 'left');
+    const rightChildren = root.children.filter(c => c.side !== 'left'); // 'right' or undefined
+
+    if (leftChildren.length === 0) {
+      // No left children — traditional layout
+      assignPositions(root, PAD, PAD);
+      return;
+    }
+
+    // Compute total heights of left/right subtrees
+    const leftH  = leftChildren.reduce((s, c)  => s + c._sh, 0) + Math.max(0, leftChildren.length  - 1) * V_GAP;
+    const rightH = rightChildren.reduce((s, c) => s + c._sh, 0) + Math.max(0, rightChildren.length - 1) * V_GAP;
+    const totalH = Math.max(leftH, rightH, NODE_H);
+
+    // Width of widest left child (for root placement)
+    let maxLeftChildW = 0;
+    for (const c of leftChildren) {
+      c._w = measureNodeW(c.text, false);
+      if (c._w > maxLeftChildW) maxLeftChildW = c._w;
+    }
+
+    // Root x: placed so left children have room to the left
+    // We compute a rough left-subtree width = maxLeftChildW + H_GAP
+    const leftSubtreeW = maxLeftChildW + H_GAP;
+    const rootX = PAD + leftSubtreeW;
+    root._w = measureNodeW(root.text, false);
+    root._x = rootX;
+    root._y = PAD + totalH / 2 - NODE_H / 2;
+    root._direction = 'right';
+    root._bodyItems = [];
+
+    // Layout right children
+    let cy = PAD + (totalH - rightH) / 2;
+    for (const child of rightChildren) {
+      child._w = measureNodeW(child.text, false);
+      assignPositions(child, rootX + root._w + H_GAP, cy, 'right');
+      cy += child._sh + V_GAP;
+    }
+
+    // Layout left children
+    cy = PAD + (totalH - leftH) / 2;
+    for (const child of leftChildren) {
+      child._w = measureNodeW(child.text, false);
+      assignPositions(child, rootX - H_GAP - child._w, cy, 'left');
+      cy += child._sh + V_GAP;
+    }
   }
 
   function addBodyItemBounds(items, b) {
@@ -257,6 +332,20 @@
     return b;
   }
 
+  /** Shift all node and body-item x coordinates by dx (for left-side layout canvas offset). */
+  function shiftTree(node, dx) {
+    node._x += dx;
+    if (node._bodyItems) {
+      for (const item of node._bodyItems) shiftBodyItem(item, dx);
+    }
+    for (const child of node.children) shiftTree(child, dx);
+  }
+
+  function shiftBodyItem(item, dx) {
+    item._x += dx;
+    for (const child of item.children) shiftBodyItem(child, dx);
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   function countVisibleNodes(node) {
@@ -270,6 +359,14 @@
     layout();
 
     const bounds = getBounds(root);
+    // When there are left-side nodes, bounds.minX may be negative relative to canvas origin.
+    // Shift everything right so minX >= PAD, then compute canvas size.
+    const shiftX = bounds.minX < PAD ? PAD - bounds.minX : 0;
+    if (shiftX > 0) {
+      shiftTree(root, shiftX);
+      bounds.minX += shiftX;
+      bounds.maxX += shiftX;
+    }
     const W = bounds.maxX + PAD;
     const H = bounds.maxY + PAD;
     svgLayer.setAttribute('width', W);
@@ -309,8 +406,17 @@
     for (const item of items) {
       if (item.collapsed || !item.children.length) continue;
       for (const child of item.children) {
-        const x1 = item._x + (item._w || BODY_MIN_W), y1 = item._y + BODY_H / 2;
-        const x2 = child._x,                           y2 = child._y + BODY_H / 2;
+        const itemDir = item._direction || 'right';
+        let x1, x2;
+        if (itemDir === 'left') {
+          x1 = item._x;                            // item left edge
+          x2 = child._x + (child._w || BODY_MIN_W); // child right edge
+        } else {
+          x1 = item._x + (item._w || BODY_MIN_W);  // item right edge
+          x2 = child._x;                            // child left edge
+        }
+        const y1 = item._y + BODY_H / 2;
+        const y2 = child._y + BODY_H / 2;
         const cx = (x1 + x2) / 2;
         const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -328,12 +434,23 @@
   function drawConnections(node, svg) {
     if (node.collapsed) return;
     const color = LEVEL_COLORS[Math.min(node.level + 1, LEVEL_COLORS.length - 1)];
+    const dir = node._direction || 'right';
 
     // Dashed connections: heading → body items
     if (node._bodyItems && node._bodyItems.length) {
       for (const item of node._bodyItems) {
-        const x1 = node._x + (node._w || NODE_MIN_W), y1 = node._y + NODE_H / 2;
-        const x2 = item._x,                            y2 = item._y + BODY_H / 2;
+        // Body items expand in the same direction as the heading
+        const itemDir = item._direction || dir;
+        let x1, x2;
+        if (itemDir === 'left') {
+          x1 = node._x;                         // parent left edge
+          x2 = item._x + (item._w || BODY_MIN_W); // item right edge
+        } else {
+          x1 = node._x + (node._w || NODE_MIN_W); // parent right edge
+          x2 = item._x;                            // item left edge
+        }
+        const y1 = node._y + NODE_H / 2;
+        const y2 = item._y + BODY_H / 2;
         const cx = (x1 + x2) / 2;
         const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -350,8 +467,17 @@
 
     // Solid connections: heading → child headings
     for (const child of node.children) {
-      const x1 = node._x + (node._w || NODE_MIN_W), y1 = node._y + NODE_H / 2;
-      const x2 = child._x,                           y2 = child._y + NODE_H / 2;
+      const childDir = child._direction || dir;
+      let x1, x2;
+      if (childDir === 'left') {
+        x1 = node._x;                            // parent left edge
+        x2 = child._x + (child._w || NODE_MIN_W); // child right edge
+      } else {
+        x1 = node._x + (node._w || NODE_MIN_W); // parent right edge
+        x2 = child._x;                           // child left edge
+      }
+      const y1 = node._y + NODE_H / 2;
+      const y2 = child._y + NODE_H / 2;
       const cx = (x1 + x2) / 2;
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
@@ -1412,6 +1538,7 @@
       }
     }
     render();
+
   }
 
   function updateDropFeedback(e, draggedNode) {
@@ -1423,6 +1550,10 @@
     if (position === 'inside') {
       const el = document.querySelector(`.node[data-id="${targetNode.id}"]`);
       if (el) el.classList.add('drop-over');
+    } else if (position === 'root-left' || position === 'root-right') {
+      // Highlight root node's left or right half
+      const el = document.querySelector(`.node[data-id="${targetNode.id}"]`);
+      if (el) el.classList.add(position === 'root-left' ? 'drop-root-left' : 'drop-root-right');
     } else {
       const lineY = position === 'before' ? targetNode._y : targetNode._y + NODE_H;
       const sx = targetNode._x * transform.scale + transform.x;
@@ -1437,6 +1568,8 @@
 
   function clearDropFeedback() {
     document.querySelectorAll('.node.drop-over').forEach(el => el.classList.remove('drop-over'));
+    document.querySelectorAll('.node.drop-root-left').forEach(el => el.classList.remove('drop-root-left'));
+    document.querySelectorAll('.node.drop-root-right').forEach(el => el.classList.remove('drop-root-right'));
     dropIndicator.style.display = 'none';
     dropIndicator.className = '';
     stage.style.cursor = '';
@@ -1465,6 +1598,11 @@
       const relY = sy - ny;
       let pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
       if (pos === 'inside' && node.level >= 6) pos = 'h6-blocked';
+      // Root node: split inside zone into left/right halves
+      if (pos === 'inside' && node === root) {
+        const relX = sx - nx;
+        pos = relX < nw / 2 ? 'root-left' : 'root-right';
+      }
       cb({ targetNode: node, position: pos }, distToRect(sx, sy, nx, ny, nw, nh));
     }
     if (!node.collapsed) node.children.forEach(c => collectDropCandidates(c, dragged, sx, sy, tolerance, cb));
@@ -1491,6 +1629,16 @@
         targetNode.children.push(n);
       }
       targetNode.collapsed = false;
+    } else if (position === 'root-left' || position === 'root-right') {
+      const newSide = position === 'root-left' ? 'left' : 'right';
+      for (const n of removedNodes) {
+        n.level = 1;
+        updateChildLevels(n);
+        n.side = newSide;
+        root.children.push(n);
+        vscode.postMessage({ type: 'setSide', id: n.id, side: newSide });
+      }
+      root.collapsed = false;
     } else {
       const targetParent = findParent(root, targetNode);
       if (!targetParent) return;
@@ -1517,6 +1665,16 @@
       updateChildLevels(draggedNode);
       targetNode.children.push(draggedNode);
       targetNode.collapsed = false;
+    } else if (position === 'root-left' || position === 'root-right') {
+      // Drop onto root's left or right zone: make dragged node a direct H1 child of root
+      const newSide = position === 'root-left' ? 'left' : 'right';
+      draggedNode.level = 1;
+      updateChildLevels(draggedNode);
+      draggedNode.side = newSide;
+      root.children.push(draggedNode);
+      root.collapsed = false;
+      // Notify extension to persist the side change
+      vscode.postMessage({ type: 'setSide', id: draggedNode.id, side: newSide });
     } else {
       const targetParent = findParent(root, targetNode);
       if (!targetParent) { sourceParent.children.push(draggedNode); postStructuralEdit(); return; }
@@ -1846,6 +2004,7 @@
       level: node.level,
       collapsed: node.collapsed,
       body: node.body,
+      side: node.side,
       children: node.children.map(cloneWithNewIds)
     };
   }
@@ -2070,7 +2229,7 @@
 
   let _idSeq = Date.now();
   function makeNode(text, level) {
-    return { id: String(_idSeq++), text, level, children: [], collapsed: false, body: '' };
+    return { id: String(_idSeq++), text, level, children: [], collapsed: false, body: '', side: 'right' };
   }
 
   function findById(node, id) {
@@ -2101,7 +2260,7 @@
   // ─── Undo ─────────────────────────────────────────────────────────────────
 
   function cloneForUndo(node) {
-    return { id: node.id, text: node.text, level: node.level, collapsed: node.collapsed, body: node.body, children: node.children.map(cloneForUndo) };
+    return { id: node.id, text: node.text, level: node.level, collapsed: node.collapsed, body: node.body, side: node.side, children: node.children.map(cloneForUndo) };
   }
 
   function pushUndo() {
