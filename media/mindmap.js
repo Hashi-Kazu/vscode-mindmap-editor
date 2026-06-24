@@ -2170,7 +2170,10 @@
     if (msg.type === 'update') {
       // Skip re-render while an inline edit (heading or body item) is in
       // progress so the live <input> isn't torn down mid-typing.
-      if (editingId || bodyEditing) return;
+      // Also skip during drag operations: replacing root would invalidate
+      // dragState.node references, causing findParent to return null and
+      // silently failing the drop (the node would appear duplicated on retry).
+      if (editingId || bodyEditing || dragState || bodyDragState) return;
       root = msg.root;
       // Restore body item collapse state from frontmatter
       if (msg.bodyItemCollapsePaths) {

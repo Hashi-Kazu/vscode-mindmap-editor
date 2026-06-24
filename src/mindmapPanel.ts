@@ -217,6 +217,12 @@ export class MindMapPanel {
     this.lastPreamble = preamble;
     this.lastBodyItemCollapsePaths = bodyItemCollapsePaths;
     this.panel.webview.postMessage({ type: 'update', root, bodyItemCollapsePaths });
+    // Keep the on-disk file in sync with what the webview displays.
+    // Without this, source-editor edits remain in the dirty in-memory document
+    // but never reach disk — closing and reopening the file shows stale content.
+    if (doc.isDirty) {
+      void doc.save();
+    }
   }
 
   /**

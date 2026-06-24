@@ -1,9 +1,9 @@
 # マインドマップエディタ VS Code拡張機能 要求仕様書（USDM形式）
 
 **文書番号**: MME-REQ-001-USDM  
-**バージョン**: 2.6.1  
+**バージョン**: 2.6.4  
 **作成日**: 2026-06-04  
-**最終更新**: 2026-06-20  
+**最終更新**: 2026-06-24  
 **ステータス**: 承認済み  
 **関連文書**: [architecture.md](architecture.md) | [acceptance-tests.md](acceptance-tests.md)
 
@@ -488,6 +488,7 @@
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
+| 2.6.4 | 2026-06-24 | ドラッグ操作中に `update` メッセージが届くと `root` が全置換されドロップが無声失敗するバグを修正（ドラッグ中は update をスキップ）。ソースエディタ変更後に `syncFromDocument` でファイルが保存されずソースエディタ閉じ時に変更が失われるバグを修正（`doc.isDirty` 時に `doc.save()` を呼ぶ）。挙動修正のみ／要件変更なし |
 | 2.6.3 | 2026-06-20 | frontmatter と preamble が共存する場合の round-trip 非冪等（preamble 先頭の空行が round-trip ごとに 1 行累積する）を修正。serializer で preamble 先頭の余分な空行を正規化（NF-02-01）。挙動修正のみ／要件変更なし |
 | 2.6.1 | 2026-06-19 | 現バージョン実装状況を仕様書へ反映。全仕様の検証ステータスを `■■□`（実装済・テスト未）へ更新。検証ステータス凡例セクションを追加。ヘッダのバージョン・最終更新を整合（挙動変更なし／ドキュメント整備）。`categories` を `Visualization` に絞り込み |
 | 2.6.0 | 2026-06-17 | アクティブエディタ切替時にビューアを自動追従する機能を追加（R-19-01〜R-19-05）。`extension.ts` の `onDidChangeActiveTextEditor` リスナー、`MindMapPanel.switchDocument` / `followActiveDocument` 追加。設定 `mindmap.followActiveEditor`（既定 `true`）を追加 |
