@@ -108,10 +108,6 @@
   let undoStack = [];
   let clipboard = null; // { type: 'heading'|'body', lines?: string[], indent?: number, node?: object, nodes?: object[] }
 
-  // Body item collapse state — persists across renders (session-only)
-  // key: `${nodeId}:${lineIdx}`
-  const collapsedBodyItems = new Map();
-
   // ─── DOM refs ─────────────────────────────────────────────────────────────
 
   const stage        = document.getElementById('stage');
@@ -140,17 +136,17 @@
   }
 
   /** Apply saved collapse state to a body item tree */
-  function applyBodyItemCollapseState(items, nodeId) {
+  function applyBodyItemCollapseState(items, collapsedLines) {
     for (const item of items) {
-      item.collapsed = collapsedBodyItems.get(`${nodeId}:${item.lineIdx}`) || false;
-      applyBodyItemCollapseState(item.children, nodeId);
+      item.collapsed = collapsedLines ? collapsedLines.has(item.lineIdx) : false;
+      applyBodyItemCollapseState(item.children, collapsedLines);
     }
   }
 
   /** Get hierarchical body item tree with collapse state applied */
   function getBodyTree(node) {
     const tree = getBodyItemTree(node.body);
-    applyBodyItemCollapseState(tree, node.id);
+    applyBodyItemCollapseState(tree, node.collapsedBodyLines);
     return tree;
   }
 
@@ -796,11 +792,11 @@
   }
 
   function toggleBodyItemCollapse(item, parentNode) {
-    const key = `${parentNode.id}:${item.lineIdx}`;
-    if (collapsedBodyItems.get(key)) {
-      collapsedBodyItems.delete(key);
+    if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
+    if (parentNode.collapsedBodyLines.has(item.lineIdx)) {
+      parentNode.collapsedBodyLines.delete(item.lineIdx);
     } else {
-      collapsedBodyItems.set(key, true);
+      parentNode.collapsedBodyLines.add(item.lineIdx);
     }
     render();
     postBodyItemCollapseState(); // persist to frontmatter
@@ -948,7 +944,7 @@
     }
     expandAll(root);
     // Clear all body item collapse states
-    collapsedBodyItems.clear();
+    clearAllBodyCollapse(root);
     render();
     postCollapseState();
     postBodyItemCollapseState();
@@ -963,17 +959,18 @@
     }
     collapseAll(root, true);
     // Collapse all body items that have children
-    function collapseBodyItems(items, nodeId) {
-      for (const item of items) {
-        if (item.children && item.children.length) {
-          collapsedBodyItems.set(`${nodeId}:${item.lineIdx}`, true);
-        }
-        collapseBodyItems(item.children, nodeId);
-      }
-    }
     function collapseAllBodyItems(node) {
       const items = getBodyItemTree(node.body);
-      collapseBodyItems(items, node.id);
+      node.collapsedBodyLines = new Set();
+      function collapseItems(items) {
+        for (const item of items) {
+          if (item.children && item.children.length) {
+            node.collapsedBodyLines.add(item.lineIdx);
+          }
+          collapseItems(item.children);
+        }
+      }
+      collapseItems(items);
       node.children.forEach(collapseAllBodyItems);
     }
     collapseAllBodyItems(root);
@@ -1349,7 +1346,7 @@
     const lineCount = lastLine - lineIdx + 1;
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
-    collapsedBodyItems.delete(`${parentNode.id}:${lineIdx}`);
+    parentNode.collapsedBodyLines?.delete(lineIdx);
     lines.splice(lineIdx, lineCount);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     parentNode.body = lines.join('\n');
@@ -1364,7 +1361,7 @@
     const lineCount = lastLine - lineIdx + 1;
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
-    collapsedBodyItems.delete(`${parentNode.id}:${lineIdx}`);
+    parentNode.collapsedBodyLines?.delete(lineIdx);
     pushUndo();
     lines.splice(lineIdx, lineCount);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
@@ -2448,7 +2445,8 @@
         const cur = flat.find(i => i.lineIdx === lineIdx);
         if (cur && cur.children.length) {
           if (cur.collapsed) {
-            collapsedBodyItems.delete(`${parentNode.id}:${cur.lineIdx}`);
+            if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
+            parentNode.collapsedBodyLines.delete(cur.lineIdx);
             render();
             postBodyItemCollapseState();
           }
@@ -2513,10 +2511,16 @@
     if (msg.type === 'saved') showSaveIndicator();
   });
 
-  /** Convert frontmatter paths → collapsedBodyItems Map entries */
+  /** Clear all body item collapse states for the entire node tree */
+  function clearAllBodyCollapse(node) {
+    node.collapsedBodyLines = new Set();
+    node.children.forEach(clearAllBodyCollapse);
+  }
+
+  /** Convert frontmatter paths → node.collapsedBodyLines Set entries */
   function applyBodyItemCollapsePaths(paths) {
-    collapsedBodyItems.clear();
-    if (!root || !paths || !paths.length) return;
+    clearAllBodyCollapse(root);
+    if (!paths || !paths.length) return;
     for (const path of paths) {
       const sep = path.indexOf('::');
       if (sep === -1) continue;
@@ -2527,7 +2531,8 @@
       const items = getBodyItemTree(node.body);
       const item  = findBodyItemByChain(items, itemChain, 0);
       if (!item) continue;
-      collapsedBodyItems.set(`${node.id}:${item.lineIdx}`, true);
+      if (!node.collapsedBodyLines) node.collapsedBodyLines = new Set();
+      node.collapsedBodyLines.add(item.lineIdx);
     }
   }
 
@@ -2556,7 +2561,7 @@
     return null;
   }
 
-  /** Convert collapsedBodyItems Map → frontmatter path strings */
+  /** Convert node.collapsedBodyLines Sets → frontmatter path strings */
   function extractBodyItemCollapsePaths() {
     if (!root) return [];
     const result = [];
@@ -2565,21 +2570,23 @@
 
     function walkNode(node, parentPath) {
       const myPath = parentPath ? `${parentPath}/${node.text}` : node.text;
-      if (!node.collapsed && node._bodyItems) {
-        for (const item of node._bodyItems) {
-          walkItem(item, node.id, myPath, '');
+      if (node.collapsedBodyLines && node.collapsedBodyLines.size > 0) {
+        const bodyTree = getBodyItemTree(node.body);
+        applyBodyItemCollapseState(bodyTree, node.collapsedBodyLines);
+        for (const item of bodyTree) {
+          walkItem(item, myPath, '');
         }
       }
       for (const child of node.children) walkNode(child, myPath);
     }
 
-    function walkItem(item, nodeId, headingPath, chain) {
+    function walkItem(item, headingPath, chain) {
       const myChain = chain ? `${chain}::${item.text}` : item.text;
-      if (collapsedBodyItems.get(`${nodeId}:${item.lineIdx}`)) {
+      if (item.collapsed) {
         result.push(`${headingPath}::${myChain}`);
       }
       if (!item.collapsed) {
-        for (const child of item.children) walkItem(child, nodeId, headingPath, myChain);
+        for (const child of item.children) walkItem(child, headingPath, myChain);
       }
     }
   }
