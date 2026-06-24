@@ -243,16 +243,20 @@ body {
 
 /* Root node — visually distinct from level-1 nodes */
 .node[data-level="0"] {
-  background: var(--vscode-editor-selectionHighlightBackground, rgba(173, 214, 255, 0.1));
+  background: var(--node-bg);
   border: 1.5px solid var(--node-color, var(--border));
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   font-size: 14px;
   letter-spacing: 0.01em;
 }
 
 .node[data-level="0"]:hover {
-  background: var(--vscode-editor-selectionHighlightBackground, rgba(173, 214, 255, 0.15));
-  box-shadow: 0 3px 10px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+  background: var(--hover-bg);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+}
+
+.node[data-level="0"].selected {
+  box-shadow: 0 0 0 2px var(--node-color, var(--focus)), 0 2px 8px rgba(0,0,0,0.4);
 }
 
 /* Left-side nodes: accent bar moves to the right edge (connection side) */
