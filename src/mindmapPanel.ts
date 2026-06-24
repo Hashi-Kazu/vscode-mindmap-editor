@@ -309,6 +309,19 @@ export class MindMapPanel {
     }
   }
 
+  /**
+   * Re-fetch the live TextDocument from its (immutable) URI before edit/save.
+   * When the source editor is closed, VS Code may dispose the backing
+   * TextDocument, leaving this.document a stale/closed reference whose save()
+   * is a no-op. openTextDocument returns the already-loaded instance if present
+   * and loads (without revealing an editor) otherwise, so save() lands on the
+   * current instance and applyEdit targets the loaded doc rather than forcing a
+   * fresh editor to open.
+   */
+  private async refreshDocument(): Promise<void> {
+    this.document = await vscode.workspace.openTextDocument(this.document.uri);
+  }
+
   private async commitTree(collapsedPaths?: string[]): Promise<void> {
     if (!this.lastRoot) return;
     const collapsed = collapsedPaths ?? extractCollapsedPaths(this.lastRoot);
@@ -328,6 +341,10 @@ export class MindMapPanel {
     // bug where a concurrent write with the pre-edit length would leave tail
     // content behind and duplicate nodes in the parsed tree.
     const run = async (): Promise<void> => {
+      // Re-acquire the live document: if the source editor was closed, our
+      // cached this.document may be a disposed instance whose save() no-ops,
+      // and applyEdit against its URI would force a fresh editor to open.
+      await this.refreshDocument();
       // Optimistic concurrency check BEFORE overwriting: if the file changed
       // out from under us (another person on a shared drive / after a Git pull,
       // or an external edit that arrived while isOperating suppressed the sync),
@@ -443,6 +460,9 @@ export class MindMapPanel {
   /** Reload the document from disk and re-sync the mindmap to that state. */
   private async reloadFromDisk(): Promise<void> {
     try {
+      // Refresh first so applyEdit/save below act on the live document, not a
+      // disposed reference left behind by a closed source editor.
+      await this.refreshDocument();
       const bytes = await vscode.workspace.fs.readFile(this.document.uri);
       const diskText = Buffer.from(bytes).toString('utf8');
       // Bring the in-memory TextDocument up to date if it lags the disk.
