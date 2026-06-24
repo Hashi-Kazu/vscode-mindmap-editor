@@ -2383,6 +2383,16 @@
     return result;
   }
 
+  /** Find the parent body item that directly contains the item with the given lineIdx */
+  function findBodyItemParent(items, targetLineIdx) {
+    for (const item of items) {
+      if (item.children.some(c => c.lineIdx === targetLineIdx)) return item;
+      const found = findBodyItemParent(item.children, targetLineIdx);
+      if (found) return found;
+    }
+    return null;
+  }
+
   /** Select a body item by item object under parentNode */
   function selectBodyItem(parentNode, item) {
     const key2 = `${parentNode.id}:${item.lineIdx}`;
@@ -2420,14 +2430,26 @@
           selectNode(parentNode);
         }
       } else if (key === towardParent) {
-        // Navigate back to the parent heading node
-        selectNode(parentNode);
+        const { indent } = selectedBodyItemData;
+        if (indent === 0) {
+          selectNode(parentNode);
+        } else {
+          const tree = getBodyTree(parentNode);
+          const parent = findBodyItemParent(tree, lineIdx);
+          if (parent) selectBodyItem(parentNode, parent);
+          else selectNode(parentNode);
+        }
       } else if (key === towardChild) {
-        // Navigate into the first child body item (if any visible)
+        // Navigate into the first child body item (if any, expand if collapsed)
         const tree = getBodyTree(parentNode);
         const flat = getVisibleBodyItemsFlat(tree);
         const cur = flat.find(i => i.lineIdx === lineIdx);
-        if (cur && cur.children.length && !cur.collapsed) {
+        if (cur && cur.children.length) {
+          if (cur.collapsed) {
+            collapsedBodyItems.delete(`${parentNode.id}:${cur.lineIdx}`);
+            render();
+            postBodyItemCollapseState();
+          }
           selectBodyItem(parentNode, cur.children[0]);
         }
       }
