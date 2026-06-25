@@ -12,6 +12,22 @@
   --menu-fg: var(--vscode-menu-foreground, #d4d4d4);
   --menu-hover: var(--vscode-menu-selectionBackground, #094771);
   --error: var(--vscode-errorForeground, #f48771);
+  --root-outline: var(--vscode-charts-purple, #c586c0);
+  --root-selection: var(--vscode-focusBorder, #007fd4);
+}
+
+body.vscode-light {
+  --root-outline: var(--vscode-charts-purple, #7a3e9d);
+}
+
+body.vscode-high-contrast {
+  --root-outline: var(--vscode-charts-purple, #ff9dff);
+  --root-selection: var(--vscode-focusBorder, #f38518);
+}
+
+body.vscode-high-contrast-light {
+  --root-outline: var(--vscode-charts-purple, #6f2c91);
+  --root-selection: var(--vscode-focusBorder, #0f4a85);
 }
 
 *, *::before, *::after {
@@ -221,7 +237,7 @@ body {
 }
 
 .node[data-level="0"] {
-  box-shadow: 0 0 0 1.5px var(--node-color, var(--border)), 0 1px 3px rgba(0,0,0,0.28);
+  box-shadow: 0 0 0 2px var(--root-outline), 0 1px 3px rgba(0,0,0,0.28);
 }
 
 .node[data-level="0"]::before {
@@ -230,8 +246,9 @@ body {
 
 .node[data-level="0"].selected {
   box-shadow:
-    0 0 0 1.5px var(--node-bg),
-    0 0 0 3px var(--node-color, var(--focus)),
+    0 0 0 2px var(--root-outline),
+    0 0 0 4px var(--node-bg),
+    0 0 0 6px var(--root-selection),
     0 2px 6px rgba(0,0,0,0.36);
 }
 
