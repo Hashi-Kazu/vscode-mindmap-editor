@@ -36,25 +36,13 @@ export function activate(context: vscode.ExtensionContext): void {
   // keeps its current content rather than being cleared. Gated by a setting so
   // users can opt out of auto-follow.
   const followListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
-    if (!editor) {
-      MindMapPanel.discardViewerFocusRestore();
-      return;
-    }
-    if (editor.document.languageId !== 'markdown') {
-      MindMapPanel.discardViewerFocusRestore();
-      return;
-    }
+    if (!editor) return;
+    if (editor.document.languageId !== 'markdown') return;
     const enabled = vscode.workspace
       .getConfiguration('mindmap')
       .get<boolean>('followActiveEditor', true);
-    if (!enabled) {
-      MindMapPanel.discardViewerFocusRestore();
-      return;
-    }
-    const restoreViewerFocus = MindMapPanel.consumeViewerFocusRestoreFor(
-      editor.document
-    );
-    void MindMapPanel.followActiveDocument(editor.document, restoreViewerFocus);
+    if (!enabled) return;
+    MindMapPanel.followActiveDocument(editor.document);
   });
   context.subscriptions.push(followListener);
 }

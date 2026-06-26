@@ -12,7 +12,6 @@ export class MindMapPanel {
   // "follow the active editor": when the user focuses a different .md file we
   // retarget this panel instead of spawning a duplicate.
   private static activePanel: MindMapPanel | null = null;
-  private static restoreFocusPanel: MindMapPanel | null = null;
 
   private readonly panel: vscode.WebviewPanel;
   private readonly extensionUri: vscode.Uri;
@@ -75,42 +74,20 @@ export class MindMapPanel {
    * Non-Markdown editors (output panel, settings, etc.) never reach here; the
    * caller filters on languageId, so the viewer keeps its current content.
    */
-  public static consumeViewerFocusRestoreFor(document: vscode.TextDocument): boolean {
-    const sourcePanel = MindMapPanel.restoreFocusPanel;
-    MindMapPanel.restoreFocusPanel = null;
-    return (
-      sourcePanel !== null &&
-      sourcePanel.document.uri.toString() !== document.uri.toString()
-    );
-  }
-
-  public static discardViewerFocusRestore(): void {
-    MindMapPanel.restoreFocusPanel = null;
-  }
-
-  public static async followActiveDocument(
-    document: vscode.TextDocument,
-    restoreViewerFocus = false
-  ): Promise<void> {
+  public static followActiveDocument(document: vscode.TextDocument): void {
     const key = document.uri.toString();
 
     // Already the target of some panel — just make it the active one.
     const sameDocPanel = MindMapPanel.panels.get(key);
     if (sameDocPanel) {
       MindMapPanel.activePanel = sameDocPanel;
-      if (restoreViewerFocus) {
-        sameDocPanel.panel.reveal(sameDocPanel.panel.viewColumn, false);
-      }
       return;
     }
 
     const target = MindMapPanel.activePanel;
     if (!target) return; // no viewer open — nothing to follow
 
-    await target.switchDocument(document);
-    if (restoreViewerFocus) {
-      target.panel.reveal(target.panel.viewColumn, false);
-    }
+    target.switchDocument(document);
   }
 
   private constructor(extensionUri: vscode.Uri, document: vscode.TextDocument) {
@@ -145,10 +122,7 @@ export class MindMapPanel {
     // Track focus into this panel so it becomes the active follow target.
     this.panel.onDidChangeViewState(
       (e) => {
-        if (e.webviewPanel.active) {
-          MindMapPanel.activePanel = this;
-          MindMapPanel.restoreFocusPanel = this;
-        }
+        if (e.webviewPanel.active) MindMapPanel.activePanel = this;
       },
       null,
       this.disposables
@@ -193,20 +167,16 @@ export class MindMapPanel {
    * collapse paths, checkbox migration), and the panels Map key + title follow
    * the swap. Never touches file contents — purely a view retarget (NF-03).
    */
-  public switchDocument(document: vscode.TextDocument): Promise<void> {
-    if (document.uri.toString() === this.document.uri.toString()) {
-      return Promise.resolve();
-    }
+  public switchDocument(document: vscode.TextDocument): void {
+    if (document.uri.toString() === this.document.uri.toString()) return;
 
     // Defer the actual swap until any queued write for the OLD document has
     // completed, so we don't reset baseText/lastRoot out from under a pending
     // applyDocumentEdit (which would corrupt its concurrency check / write).
-    const switchDone = this._editQueue.then(
+    this._editQueue = this._editQueue.then(
       () => this.performSwitch(document),
       () => this.performSwitch(document)
     );
-    this._editQueue = switchDone.then(() => {}, () => {});
-    return switchDone;
   }
 
   private performSwitch(document: vscode.TextDocument): void {
@@ -647,9 +617,6 @@ export class MindMapPanel {
       // Fall back to any other open panel so follow-mode keeps working.
       const next = MindMapPanel.panels.values().next();
       MindMapPanel.activePanel = next.done ? null : next.value;
-    }
-    if (MindMapPanel.restoreFocusPanel === this) {
-      MindMapPanel.restoreFocusPanel = null;
     }
     this.docChangeListener = null;
     this.panel.dispose();
