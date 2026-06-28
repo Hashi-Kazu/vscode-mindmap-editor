@@ -124,6 +124,10 @@ export class MindMapPanel {
         const fs = vscode.workspace.getConfiguration('mindmap').get<number>('fontSize', 14);
         this.panel.webview.postMessage({ type: 'setFontSize', fontSize: fs });
       }
+      if (e.affectsConfiguration('mindmap.edgeWidth')) {
+        const edgeWidth = vscode.workspace.getConfiguration('mindmap').get<number>('edgeWidth', 1.5);
+        this.panel.webview.postMessage({ type: 'setEdgeWidth', edgeWidth });
+      }
     });
     this.disposables.push(cfgSub);
 
@@ -275,6 +279,8 @@ export class MindMapPanel {
         await this.maybeMigrateCheckboxes();
         const fontSize = vscode.workspace.getConfiguration('mindmap').get<number>('fontSize', 14);
         this.panel.webview.postMessage({ type: 'setFontSize', fontSize });
+        const edgeWidth = vscode.workspace.getConfiguration('mindmap').get<number>('edgeWidth', 1.5);
+        this.panel.webview.postMessage({ type: 'setEdgeWidth', edgeWidth });
         break;
       }
 

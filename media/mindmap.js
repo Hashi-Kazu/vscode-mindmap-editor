@@ -81,6 +81,7 @@
   }
 
   let configFontSize = 14;
+  let configEdgeWidth = 1.5;
 
   const LEVEL_COLORS = [
     '#569cd6','#569cd6','#4ec9b0','#dcdcaa','#ce9178','#9cdcfe','#c586c0',
@@ -560,7 +561,7 @@
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
         p.setAttribute('fill', 'none');
         p.setAttribute('stroke', '#666');
-        p.setAttribute('stroke-width', '1.5');
+        p.setAttribute('stroke-width', String(Math.max(0.5, configEdgeWidth - 0.5)));
         p.setAttribute('stroke-dasharray', '4,3');
         p.setAttribute('stroke-opacity', '0.4');
         svg.appendChild(p);
@@ -594,7 +595,7 @@
         p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
         p.setAttribute('fill', 'none');
         p.setAttribute('stroke', '#888');
-        p.setAttribute('stroke-width', '1.5');
+        p.setAttribute('stroke-width', String(Math.max(0.5, configEdgeWidth - 0.5)));
         p.setAttribute('stroke-dasharray', '4,3');
         p.setAttribute('stroke-opacity', '0.45');
         svg.appendChild(p);
@@ -621,7 +622,7 @@
       p.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
       p.setAttribute('fill', 'none');
       p.setAttribute('stroke', color);
-      p.setAttribute('stroke-width', node.level <= 1 ? '2.5' : '2');
+      p.setAttribute('stroke-width', node.level <= 1 ? String(configEdgeWidth + 1.0) : String(configEdgeWidth));
       p.setAttribute('stroke-opacity', '0.75');
       svg.appendChild(p);
       drawConnections(child, svg);
@@ -2680,6 +2681,11 @@
     if (msg.type === 'saved') showSaveIndicator();
     if (msg.type === 'setFontSize') {
       configFontSize = msg.fontSize;
+      render();
+      return;
+    }
+    if (msg.type === 'setEdgeWidth') {
+      configEdgeWidth = msg.edgeWidth;
       render();
       return;
     }
