@@ -30,7 +30,7 @@
           "default": true,
           "description": "アクティブなMarkdownエディタが切り替わったとき、マインドマップビューアの表示内容を自動でその.mdファイルに追従させる"
         },
-        "mindmapEditor.fontSize": {
+        "mindmap.fontSize": {
           "type": "number",
           "default": 14,
           "minimum": 8,
