@@ -119,6 +119,14 @@ export class MindMapPanel {
 
     this.registerDocChangeListener();
 
+    const cfgSub = vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('mindmapEditor.fontSize')) {
+        const fs = vscode.workspace.getConfiguration('mindmapEditor').get<number>('fontSize', 14);
+        this.panel.webview.postMessage({ type: 'setFontSize', fontSize: fs });
+      }
+    });
+    this.disposables.push(cfgSub);
+
     // Track focus into this panel so it becomes the active follow target.
     this.panel.onDidChangeViewState(
       (e) => {
@@ -265,6 +273,8 @@ export class MindMapPanel {
         this.webviewReady = true;
         this.syncFromDocument(this.document);
         await this.maybeMigrateCheckboxes();
+        const fontSize = vscode.workspace.getConfiguration('mindmapEditor').get<number>('fontSize', 14);
+        this.panel.webview.postMessage({ type: 'setFontSize', fontSize });
         break;
       }
 

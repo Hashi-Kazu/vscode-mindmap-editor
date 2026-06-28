@@ -47,7 +47,7 @@
     if (!_measureCtx) {
       _measureCtx = document.createElement('canvas').getContext('2d');
     }
-    const fontSize = isBody ? 12 : 13;
+    const fontSize = isBody ? configFontSize - 2 : configFontSize - 1;
     _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
     const tw = _measureCtx.measureText(text).width;
     // overhead: padding + body-dot / checkbox (+ toggle btn when collapsible)
@@ -67,7 +67,7 @@
     if (!_measureCtx) {
       _measureCtx = document.createElement('canvas').getContext('2d');
     }
-    const fontSize = isBody ? 12 : 13;
+    const fontSize = isBody ? configFontSize - 2 : configFontSize - 1;
     _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
     const tw = _measureCtx.measureText(text).width;
     // available label width = nodeW - padding - toggle
@@ -79,6 +79,8 @@
     }
     return isBody ? BODY_H : NODE_H;
   }
+
+  let configFontSize = 14;
 
   const LEVEL_COLORS = [
     '#569cd6','#569cd6','#4ec9b0','#dcdcaa','#ce9178','#9cdcfe','#c586c0',
@@ -660,6 +662,7 @@
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = node.text;
+    label.style.fontSize = (configFontSize - 1) + 'px';
     div.appendChild(label);
 
     // Left-side nodes: toggle button goes after the label (right side of text)
@@ -803,6 +806,7 @@
     const label = document.createElement('span');
     label.className = 'body-node-label';
     label.textContent = item.text;
+    label.style.fontSize = (configFontSize - 2) + 'px';
     div.appendChild(label);
 
     div.addEventListener('click', (e) => {
@@ -2674,6 +2678,11 @@
       render();
     }
     if (msg.type === 'saved') showSaveIndicator();
+    if (msg.type === 'setFontSize') {
+      configFontSize = msg.fontSize;
+      render();
+      return;
+    }
   });
 
   /** Clear all body item collapse states for the entire node tree */
