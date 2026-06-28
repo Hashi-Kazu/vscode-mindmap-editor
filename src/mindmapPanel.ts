@@ -579,6 +579,10 @@ export class MindMapPanel {
     <button id="btn-collapse-all" title="すべてのノードを折りたたむ">▼ 全折畳</button>
     <span class="sep"></span>
     <span id="checkbox-progress"></span>
+    <span class="sep"></span>
+    <button id="btn-filter-all" class="filter-btn active" title="すべての本文項目を表示">すべて</button>
+    <button id="btn-filter-checked" class="filter-btn" title="チェック済みの項目のみ表示">✓ ONのみ</button>
+    <button id="btn-filter-unchecked" class="filter-btn" title="未チェックの項目のみ表示">□ OFFのみ</button>
     <span style="flex:1"></span>
     <span id="save-indicator">✓ 保存済</span>
     <button id="btn-help" title="キーボードショートカット一覧を表示">?</button>

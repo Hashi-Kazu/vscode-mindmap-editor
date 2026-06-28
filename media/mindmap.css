@@ -550,3 +550,27 @@ body {
   opacity: 0.18;
   transition: width 0.35s ease;
 }
+
+/* ── Checkbox Filter Buttons ─────────────────────────────────────────────── */
+
+.filter-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.filter-btn:hover {
+  opacity: 0.9;
+}
+
+.filter-btn.active {
+  opacity: 1;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  border-color: transparent;
+}

@@ -99,6 +99,7 @@
   let contextBodyItem = null;
   let _pendingEditId = null;
   let _pendingBodyEdit = null;     // { parentId, lineIdx }
+  let checkboxFilter = 'all'; // 'all' | 'checked' | 'unchecked'
   let selectedBodyItemKey = null;  // `${parentNodeId}:${lineIdx}`
   let selectedBodyItemData = null; // { parentNode, lineIdx, indent }
   let selectedBodyItemKeys = new Set(); // multi-selection for body items: Set of keys
@@ -768,6 +769,12 @@
    * depth>0: nested body items (always bullet, no checkbox)
    */
   function drawBodyItemNode(parentNode, item, container, depth) {
+    // Apply checkbox filter (top-level checkboxes only; bullets and nested items always shown)
+    if (depth === 0 && item.type === 'checkbox' && checkboxFilter !== 'all') {
+      if (checkboxFilter === 'checked' && !item.checked) return;
+      if (checkboxFilter === 'unchecked' && item.checked) return;
+    }
+
     const key = `${parentNode.id}:${item.lineIdx}`;
     const isNested = depth > 0;
 
@@ -1035,6 +1042,18 @@
     transform.scale = Math.max(0.15, Math.min(4, transform.scale * factor));
     applyTransform();
   }
+
+  // Checkbox filter buttons
+  function setCheckboxFilter(mode) {
+    checkboxFilter = mode;
+    document.getElementById('btn-filter-all').classList.toggle('active', mode === 'all');
+    document.getElementById('btn-filter-checked').classList.toggle('active', mode === 'checked');
+    document.getElementById('btn-filter-unchecked').classList.toggle('active', mode === 'unchecked');
+    render();
+  }
+  document.getElementById('btn-filter-all').addEventListener('click', () => setCheckboxFilter('all'));
+  document.getElementById('btn-filter-checked').addEventListener('click', () => setCheckboxFilter('checked'));
+  document.getElementById('btn-filter-unchecked').addEventListener('click', () => setCheckboxFilter('unchecked'));
 
   document.getElementById('btn-zoom-in').addEventListener('click', () => zoomBy(1.25));
   document.getElementById('btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
