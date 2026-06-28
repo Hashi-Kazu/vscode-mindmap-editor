@@ -471,7 +471,7 @@ body {
 }
 
 .body-node.checked {
-  opacity: 0.55;
+  opacity: 0.75;
 }
 
 .body-node-checkbox {
@@ -498,7 +498,7 @@ body {
   word-break: break-word;
   font-size: 12px;
   line-height: 1.4;
-  opacity: 0.88;
+  opacity: 0.95;
 }
 
 .body-node.checked .body-node-label {
@@ -510,9 +510,8 @@ body {
   font-size: 12px;
 }
 
-/* Nested body items: slightly muted */
+/* Nested body items: slightly inset background only */
 .body-node-nested {
-  opacity: 0.88;
   background: rgba(255,255,255,0.02);
 }
 
