@@ -155,6 +155,17 @@
     return tree;
   }
 
+  function getFilteredBodyTree(node) {
+    const tree = getBodyTree(node);
+    if (checkboxFilter === 'all') return tree;
+    return tree.filter(item => {
+      if (item.type !== 'checkbox') return true;
+      if (checkboxFilter === 'checked') return item.checked;
+      if (checkboxFilter === 'unchecked') return !item.checked;
+      return true;
+    });
+  }
+
   /** Hierarchical tree of body list items (parent→children based on indent) */
   function getBodyItemTree(bodyText) {
     const flat = getBodyItems(bodyText);
@@ -314,7 +325,7 @@
     if (node.collapsed) { node._sh = h; return; }
     node.children.forEach(computeSubtreeH);
 
-    const bodyTree = getBodyTree(node);
+    const bodyTree = getFilteredBodyTree(node);
     bodyTree.forEach(computeBodyItemSubtreeH);
     const hasChildren = node.children.length > 0;
     const hasBody = bodyTree.length > 0;
@@ -339,7 +350,7 @@
     node._y = topY + node._sh / 2 - h / 2;
     if (node.collapsed) { node._bodyItems = []; return; }
 
-    const bodyTree = getBodyTree(node);
+    const bodyTree = getFilteredBodyTree(node);
     bodyTree.forEach(computeBodyItemSubtreeH);
     node._bodyItems = bodyTree; // store tree roots (with collapse state applied)
 
