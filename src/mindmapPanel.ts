@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths, extractLeftPaths } from './markdownParser';
-import { serializeToMarkdown } from './markdownSerializer';
+import { applyDocumentEol, serializeToMarkdown } from './markdownSerializer';
 import { detectConflict, normalizeText } from './conflictDetection';
 import { classifyStructuralEdit } from './syncGuard';
 import { MindMapNode } from './types';
@@ -339,7 +339,12 @@ export class MindMapPanel {
       case 'saveBodyItemCollapseState': {
         const { paths } = msg as { type: string; paths: string[] };
         this.lastBodyItemCollapsePaths = paths;
-        await this.commitTree();
+        this.isOperating = true;
+        try {
+          await this.commitTree(undefined, true);
+        } finally {
+          this.isOperating = false;
+        }
         // Re-sync: keep the cached tree aligned with the serialized file.
         this.syncFromDocument(this.document);
         break;
@@ -457,7 +462,8 @@ export class MindMapPanel {
           this.document.positionAt(0),
           this.document.positionAt(this.document.getText().length)
         );
-        edit.replace(this.document.uri, fullRange, newContent);
+        const useCrlf = this.document.eol === vscode.EndOfLine.CRLF;
+        edit.replace(this.document.uri, fullRange, applyDocumentEol(newContent, useCrlf));
         const applied = await vscode.workspace.applyEdit(edit);
         if (!applied) return;
         await this.document.save();

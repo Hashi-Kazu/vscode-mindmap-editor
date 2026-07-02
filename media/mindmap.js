@@ -132,7 +132,8 @@
 
   // ─── Body Item Helpers ────────────────────────────────────────────────────
   // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
-  // findBodyItemByLineIdx / reformatBodyLines / normalizeBodyCheckboxes are mirrored in src/bodyItems.ts,
+  // findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
+  // normalizeBodyCheckboxes are mirrored in src/bodyItems.ts,
   // while horizontal navigation and body-selection rebinding helpers are mirrored in src/navigation.ts
   // (unit-tested there since this file isn't bundled by esbuild). Keep both in
   // sync — divergence corrupts lineIdx-based body operations.
@@ -141,13 +142,34 @@
   function getBodyItems(bodyText) {
     const lines = (bodyText || '').split('\n');
     const items = [];
+    let fenceChar = null;
     lines.forEach((line, idx) => {
+      const fence = line.match(/^[ \t]*(`{3,}|~{3,})/);
+      if (fence) {
+        const ch = fence[1][0];
+        if (fenceChar === null) fenceChar = ch;
+        else if (fenceChar === ch) fenceChar = null;
+        return;
+      }
+      if (fenceChar !== null) return;
+
       const chk = line.match(/^(\s*)-\s+\[([ xX])\]\s+(.*)$/);
       const bul = !chk && line.match(/^(\s*)-\s+(.*)$/);
       if (chk) items.push({ lineIdx: idx, type: 'checkbox', checked: chk[2].toLowerCase() === 'x', text: chk[3], indent: chk[1].length, _x: 0, _y: 0, _sh: BODY_H, children: [] });
       else if (bul) items.push({ lineIdx: idx, type: 'bullet',   checked: false,                    text: bul[2], indent: bul[1].length, _x: 0, _y: 0, _sh: BODY_H, children: [] });
     });
     return items;
+  }
+
+  function remapCollapsedBodyLinesAfterDelete(collapsedSet, startLineIdx, lineCount) {
+    if (!collapsedSet) return collapsedSet;
+    const endLineIdx = startLineIdx + lineCount;
+    const remapped = new Set();
+    for (const lineIdx of collapsedSet) {
+      if (lineIdx < startLineIdx) remapped.add(lineIdx);
+      else if (lineIdx >= endLineIdx) remapped.add(lineIdx - lineCount);
+    }
+    return remapped;
   }
 
   /** Apply saved collapse state to a body item tree */
@@ -541,6 +563,12 @@
     drawConnections(root, svgLayer);
     drawNodes(root, nodeLayer);
 
+    if (_pendingBodyEdit) {
+      _pendingBodyEdit = null;
+      bodyEditing = false;
+      applyPendingUpdate();
+    }
+
     const nodeCount = countVisibleNodes(root);
     if (nodeCount !== _lastNodeCount) {
       const isInitialLoad = _lastNodeCount === 0;
@@ -926,6 +954,7 @@
   }
 
   function toggleBodyItemCollapse(item, parentNode) {
+    pushUndo();
     if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
     if (parentNode.collapsedBodyLines.has(item.lineIdx)) {
       parentNode.collapsedBodyLines.delete(item.lineIdx);
@@ -944,9 +973,11 @@
     if (!root) { el.textContent = ''; return; }
     let total = 0, done = 0;
     function countInNode(node) {
-      (node.body || '').split('\n').forEach(line => {
-        const m = line.match(/^[\s]*-\s+\[([ xX])\]/i);
-        if (m) { total++; if (m[1].toLowerCase() === 'x') done++; }
+      getBodyItems(node.body).forEach(item => {
+        if (item.type === 'checkbox') {
+          total++;
+          if (item.checked) done++;
+        }
       });
       node.children.forEach(countInNode);
     }
@@ -1240,6 +1271,7 @@
     if (e.key === 'Tab' && !e.shiftKey && selectedBodyItemData) {
       e.preventDefault();
       const { parentNode, lineIdx, indent } = selectedBodyItemData;
+      if (parentNode.collapsedBodyLines?.delete(lineIdx)) postBodyItemCollapseState();
       addBodyItem(parentNode, lineIdx, indent + 2);
       return;
     }
@@ -1502,6 +1534,7 @@
     _pendingBodyEdit = { parentId: parentNode.id, lineIdx: insertAt };
     selectedBodyItemKey = `${parentNode.id}:${insertAt}`;
     selectedBodyItemData = { parentNode, lineIdx: insertAt, indent };
+    if (indent === 0 && checkboxFilter === 'checked') setCheckboxFilter('all');
     render();
   }
 
@@ -1513,8 +1546,8 @@
     const lineCount = lastLine - lineIdx + 1;
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
-    parentNode.collapsedBodyLines?.delete(lineIdx);
     lines.splice(lineIdx, lineCount);
+    parentNode.collapsedBodyLines = remapCollapsedBodyLinesAfterDelete(parentNode.collapsedBodyLines, lineIdx, lineCount);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     parentNode.body = lines.join('\n');
     postStructuralEdit();
@@ -1528,9 +1561,9 @@
     const lineCount = lastLine - lineIdx + 1;
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
-    parentNode.collapsedBodyLines?.delete(lineIdx);
     pushUndo();
     lines.splice(lineIdx, lineCount);
+    parentNode.collapsedBodyLines = remapCollapsedBodyLinesAfterDelete(parentNode.collapsedBodyLines, lineIdx, lineCount);
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
     parentNode.body = lines.join('\n');
     selectedBodyItemKey = null;
@@ -1591,12 +1624,13 @@
         selectedId = newNode.id; _pendingEditId = newNode.id;
         postStructuralEdit(); render(); break;
       }
-      case 'add-body':          { if (contextTarget) addBodyItem(contextTarget, null, 0); break; }
+      case 'add-body':          { if (contextTarget && (!root || contextTarget.id !== root.id)) addBodyItem(contextTarget, null, 0); break; }
       case 'move-up':           { if (contextTarget) moveNode(contextTarget, -1); break; }
       case 'move-down':         { if (contextTarget) moveNode(contextTarget, 1); break; }
       case 'delete':            { if (contextTarget) deleteNode(contextTarget); break; }
       case 'body-add-child': {
         if (!contextBodyItem) return;
+        if (contextBodyItem.parentNode.collapsedBodyLines?.delete(contextBodyItem.item.lineIdx)) postBodyItemCollapseState();
         addBodyItem(contextBodyItem.parentNode, contextBodyItem.item.lineIdx, contextBodyItem.item.indent + 2);
         break;
       }
@@ -1626,7 +1660,7 @@
     buildContextMenu([
       { action: 'add-child',    label: '子ノードを追加',          disabled: node.level >= 6 },
       { action: 'add-sibling',  label: '兄弟ノードを追加',        disabled: !parent },
-      { action: 'add-body',     label: '本文項目を追加',          disabled: false },
+      { action: 'add-body',     label: '本文項目を追加',          disabled: !!(root && node.id === root.id) },
       { divider: true },
       { action: 'move-up',      label: '↑ 上へ移動',            disabled: !parent || idx <= 0 },
       { action: 'move-down',    label: '↓ 下へ移動',            disabled: !parent || idx >= parent.children.length - 1 },
@@ -2128,10 +2162,9 @@
     if (result.type === 'body-item') {
       // Compute adjusted lineIdx of target item after prior deletions
       const adjustedIdx = origTargetLineIdx - targetParentRemovedCount;
-      // Search for the item at adjusted index or by text
+      // Resolve the target strictly by its adjusted source index.
       const flatItems = getBodyItems(result.targetNode.body);
-      let updatedTargetItem = flatItems.find(i => i.lineIdx === adjustedIdx) ||
-                              flatItems.find(i => i.text === result.targetItem.text);
+      let updatedTargetItem = flatItems.find(i => i.lineIdx === adjustedIdx);
       if (!updatedTargetItem) {
         // Fallback: append to end
         const tgtLines = (result.targetNode.body || '').split('\n');
@@ -2498,7 +2531,7 @@
   // ─── Undo ─────────────────────────────────────────────────────────────────
 
   function cloneForUndo(node) {
-    return { id: node.id, text: node.text, level: node.level, collapsed: node.collapsed, body: node.body, side: node.side, children: node.children.map(cloneForUndo) };
+    return { id: node.id, text: node.text, level: node.level, collapsed: node.collapsed, body: node.body, side: node.side, collapsedBodyLines: node.collapsedBodyLines ? new Set(node.collapsedBodyLines) : undefined, children: node.children.map(cloneForUndo) };
   }
 
   function pushUndo() {
@@ -2523,6 +2556,7 @@
     selectedBodyItemsData.clear();
     render();
     postStructuralEdit();
+    postBodyItemCollapseState();
   }
 
   // ─── Keyboard Navigation ──────────────────────────────────────────────────
@@ -2656,6 +2690,7 @@
         if (intent === 'child') {
           if (cur.children.length) {
             if (cur.collapsed) {
+              pushUndo();
               if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
               parentNode.collapsedBodyLines.delete(cur.lineIdx);
               render();
@@ -2664,6 +2699,7 @@
             selectBodyItem(parentNode, cur.children[0]);
           }
         } else if (cur.children.length && !cur.collapsed) {
+          pushUndo();
           if (!parentNode.collapsedBodyLines) parentNode.collapsedBodyLines = new Set();
           parentNode.collapsedBodyLines.add(cur.lineIdx);
           render();

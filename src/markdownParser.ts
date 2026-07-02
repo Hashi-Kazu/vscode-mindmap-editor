@@ -146,29 +146,29 @@ function makeNode(text: string, level: number, bodyLines: string[]): MindMapNode
 }
 
 function parseLeftPaths(frontmatter: string): string[] {
-  const m = frontmatter.match(/mindmap-left:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
+  const m = frontmatter.match(/(?:^|\n)mindmap-left:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
   if (!m) return [];
   return m[1]
     .split('\n')
-    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').trim())
+    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').replace(/\\(["\\])/g, '$1').trim())
     .filter(Boolean);
 }
 
 function parseBodyItemCollapsePaths(frontmatter: string): string[] {
-  const m = frontmatter.match(/body-item-collapse:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
+  const m = frontmatter.match(/(?:^|\n)body-item-collapse:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
   if (!m) return [];
   return m[1]
     .split('\n')
-    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').trim())
+    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').replace(/\\(["\\])/g, '$1').trim())
     .filter(Boolean);
 }
 
 function parseCollapsePaths(frontmatter: string): string[] {
-  const m = frontmatter.match(/mindmap-collapse:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
+  const m = frontmatter.match(/(?:^|\n)mindmap-collapse:\s*\n((?:[ \t]+-[ \t]+.+\n?)*)/);
   if (!m) return [];
   return m[1]
     .split('\n')
-    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').trim())
+    .map(l => l.replace(/^[ \t]+-[ \t]+/, '').replace(/^['"]|['"]$/g, '').replace(/\\(["\\])/g, '$1').trim())
     .filter(Boolean);
 }
 

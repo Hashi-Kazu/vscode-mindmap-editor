@@ -1,9 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseMarkdown, extractCollapsedPaths, extractLeftPaths } from '../src/markdownParser';
-import { serializeToMarkdown } from '../src/markdownSerializer';
+import { applyDocumentEol, serializeToMarkdown } from '../src/markdownSerializer';
 
 const FILE = '/tmp/Doc.md';
+
+test('NF-02-03: applyDocumentEol converts LF output to CRLF and is idempotent', () => {
+  assert.equal(applyDocumentEol('a\nb\n', true), 'a\r\nb\r\n');
+  assert.equal(applyDocumentEol('a\r\nb\r\n', true), 'a\r\nb\r\n');
+  assert.equal(applyDocumentEol('a\r\nb\r\n', false), 'a\nb\n');
+  assert.ok(!applyDocumentEol('a\r\nb\r\n', true).includes('\r\r\n'));
+});
 
 // Run input -> parse -> serialize and return the serialized output.
 function roundTrip(input: string): string {

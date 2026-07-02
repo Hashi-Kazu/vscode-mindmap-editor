@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths } from '../src/markdownParser';
+import { serializeToMarkdown } from '../src/markdownSerializer';
 import { MindMapNode } from '../src/types';
 
 const FILE = '/tmp/Doc.md';
@@ -296,4 +297,54 @@ test('parseMarkdown with frontmatter but no collapse keys leaves all nodes expan
   const parsed = parseMarkdown(input, FILE);
   assert.equal(parsed.root.children[0].collapsed, false);
   assert.deepEqual(extractCollapsedPaths(parsed.root), []);
+});
+
+test('R-06-10: user keys like my-mindmap-collapse survive round-trip', () => {
+  const input = [
+    '---',
+    'my-mindmap-collapse:',
+    '  - "user-value"',
+    '---',
+    '',
+    '# A',
+    '## B',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  const output = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    extractCollapsedPaths(parsed.root),
+    parsed.bodyItemCollapsePaths
+  );
+
+  assert.ok(output.includes('my-mindmap-collapse:\n  - "user-value"'));
+  assert.equal(parseMarkdown(output, FILE).root.children[0].collapsed, false);
+});
+
+test('R-06-10: heading with double quotes round-trips through frontmatter', () => {
+  const input = [
+    '---',
+    'mindmap-collapse:',
+    '  - "A \\"quoted\\""',
+    '---',
+    '',
+    '# A "quoted"',
+    '## Child',
+    '',
+  ].join('\n');
+  const parsed = parseMarkdown(input, FILE);
+  const output = serializeToMarkdown(
+    parsed.root,
+    parsed.frontmatter,
+    parsed.preamble,
+    extractCollapsedPaths(parsed.root),
+    parsed.bodyItemCollapsePaths
+  );
+
+  assert.ok(output.includes('  - "A \\"quoted\\""'));
+  const reparsed = parseMarkdown(output, FILE);
+  assert.equal(reparsed.root.children[0].text, 'A "quoted"');
+  assert.equal(reparsed.root.children[0].collapsed, true);
 });

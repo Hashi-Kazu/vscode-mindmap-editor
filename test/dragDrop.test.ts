@@ -57,3 +57,9 @@ test('R-02-10: performMultiDrop validates target parent before removing nodes', 
   assert.ok(removeIdx >= 0, 'node removal (srcParent.children.filter) not found');
   assert.ok(guardIdx < removeIdx, 'guard must run before nodes are removed from their parents');
 });
+
+test('R-13-10: performBodyDrop has no text-match fallback', () => {
+  const fnText = extractFunction('performBodyDrop');
+  assert.ok(fnText.includes('i.lineIdx === adjustedIdx'));
+  assert.ok(!fnText.includes('i.text === result.targetItem.text'));
+});

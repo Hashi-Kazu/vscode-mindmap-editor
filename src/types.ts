@@ -33,8 +33,6 @@ export type WebviewMessage =
       baseGeneration?: number;
       docUri?: string;
     }
-  | { type: 'renameNode'; id: string; newText: string }
   | { type: 'saveCollapseState'; collapsedPaths: string[] }
-  | { type: 'editBody'; id: string; body: string }
   | { type: 'saveBodyItemCollapseState'; paths: string[] }
   | { type: 'setSide'; id: string; side: 'left' | 'right' };

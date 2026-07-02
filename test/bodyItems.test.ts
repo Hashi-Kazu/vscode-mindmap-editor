@@ -1,14 +1,47 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   getBodyItems,
   getBodyItemTree,
   bodyItemLastLineIdx,
   findBodyItemByLineIdx,
   reformatBodyLines,
+  remapCollapsedBodyLinesAfterDelete,
   normalizeBodyCheckboxes,
   normalizeTreeCheckboxes,
 } from '../src/bodyItems';
+
+const webviewSource = readFileSync(join(process.cwd(), 'media', 'mindmap.js'), 'utf8');
+
+function extractWebviewFunction(name: string): string {
+  const start = webviewSource.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `function ${name} not found in media/mindmap.js`);
+  const bodyStart = webviewSource.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < webviewSource.length; i++) {
+    const ch = webviewSource[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return webviewSource.slice(start, i + 1);
+    }
+  }
+  assert.fail(`function ${name} braces are unbalanced`);
+}
+
+test('R-15-05: remapCollapsedBodyLinesAfterDelete drops deleted range and shifts trailing indices', () => {
+  assert.deepEqual(
+    remapCollapsedBodyLinesAfterDelete(new Set([1, 3, 7]), 2, 3),
+    new Set([1, 4])
+  );
+  assert.deepEqual(
+    remapCollapsedBodyLinesAfterDelete(new Set([2, 3, 4]), 2, 3),
+    new Set()
+  );
+  assert.equal(remapCollapsedBodyLinesAfterDelete(undefined, 2, 3), undefined);
+});
 
 // ─── getBodyItems ───────────────────────────────────────────────────────────
 
@@ -61,6 +94,59 @@ test('getBodyItems skips blank and non-list lines but keeps lineIdx aligned', ()
 test('getBodyItems on empty body yields no items', () => {
   assert.deepEqual(getBodyItems(''), []);
   assert.deepEqual(getBodyItems(undefined as unknown as string), []);
+});
+
+test('R-13-12: getBodyItems excludes list-like lines inside code fences', () => {
+  const body = [
+    '- before',
+    '```ts',
+    '- code in backtick fence',
+    '~~~',
+    '- [x] tilde does not close backtick fence',
+    '```',
+    '- between',
+    '  ~~~ javascript',
+    '- [ ] code in tilde fence',
+    '```',
+    '- backtick does not close tilde fence',
+    '~~~',
+    '- after',
+  ].join('\n');
+
+  assert.deepEqual(
+    getBodyItems(body).map((item) => [item.lineIdx, item.type, item.text]),
+    [
+      [0, 'bullet', 'before'],
+      [6, 'bullet', 'between'],
+      [12, 'bullet', 'after'],
+    ]
+  );
+});
+
+test('R-13-12: lineIdx stays aligned for items after a code fence', () => {
+  const body = '- before\n```\n- hidden\n```\nparagraph\n- [ ] after';
+  const items = getBodyItems(body);
+
+  assert.deepEqual(
+    items.map((item) => [item.lineIdx, item.text]),
+    [
+      [0, 'before'],
+      [5, 'after'],
+    ]
+  );
+});
+
+test('R-13-12: webview getBodyItems mirrors fence exclusion', () => {
+  const webviewGetBodyItems = new Function(`
+    const BODY_H = 42;
+    ${extractWebviewFunction('getBodyItems')}
+    return getBodyItems;
+  `)() as (bodyText: string) => Array<{ lineIdx: number; type: string; text: string }>;
+  const body = '- before\n```js\n- hidden\n```\n~~~\n- [x] hidden too\n~~~\n- [ ] after';
+  const columns = (items: Array<{ lineIdx: number; type: string; text: string }>) =>
+    items.map((item) => [item.lineIdx, item.type, item.text]);
+
+  assert.deepEqual(columns(webviewGetBodyItems(body)), columns(getBodyItems(body)));
 });
 
 // ─── getBodyItemTree ────────────────────────────────────────────────────────

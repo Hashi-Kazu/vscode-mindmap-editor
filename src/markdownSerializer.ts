@@ -1,5 +1,10 @@
 import { MindMapNode } from './types';
 
+export function applyDocumentEol(content: string, useCrlf: boolean): string {
+  const lf = content.replace(/\r\n/g, '\n');
+  return useCrlf ? lf.replace(/\n/g, '\r\n') : lf;
+}
+
 export function serializeToMarkdown(
   root: MindMapNode,
   frontmatter: string,
@@ -69,13 +74,13 @@ function buildFrontmatter(
   leftPaths: string[] = []
 ): string {
   const collapseBlock = collapsedPaths.length > 0
-    ? `mindmap-collapse:\n${collapsedPaths.map(p => `  - "${p}"`).join('\n')}`
+    ? `mindmap-collapse:\n${collapsedPaths.map(p => `  - "${escapePath(p)}"`).join('\n')}`
     : '';
   const bodyCollapseBlock = bodyItemCollapsedPaths.length > 0
-    ? `body-item-collapse:\n${bodyItemCollapsedPaths.map(p => `  - "${p}"`).join('\n')}`
+    ? `body-item-collapse:\n${bodyItemCollapsedPaths.map(p => `  - "${escapePath(p)}"`).join('\n')}`
     : '';
   const leftBlock = leftPaths.length > 0
-    ? `mindmap-left:\n${leftPaths.map(p => `  - "${p}"`).join('\n')}`
+    ? `mindmap-left:\n${leftPaths.map(p => `  - "${escapePath(p)}"`).join('\n')}`
     : '';
 
   if (!existing) {
@@ -90,9 +95,9 @@ function buildFrontmatter(
 
   // Remove old managed blocks
   const inner = innerRaw
-    .replace(/mindmap-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
-    .replace(/body-item-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
-    .replace(/mindmap-left:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
+    .replace(/(^|\n)mindmap-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '$1')
+    .replace(/(^|\n)body-item-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '$1')
+    .replace(/(^|\n)mindmap-left:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '$1')
     .trim();
 
   const newInner = [inner, collapseBlock, bodyCollapseBlock, leftBlock].filter(Boolean).join('\n');
@@ -100,6 +105,10 @@ function buildFrontmatter(
   // The user wrote a truly empty frontmatter → keep it (never lose user
   // frontmatter). If it only held managed blocks, drop the whole block.
   return innerRaw.trim() === '' ? '---\n---' : '';
+}
+
+function escapePath(path: string): string {
+  return path.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 /** Remove a leading "<root>/" segment from a slash-separated heading path. */

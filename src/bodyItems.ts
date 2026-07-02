@@ -3,7 +3,8 @@
  *
  * IMPORTANT: This is a TypeScript port of the same functions living in
  * `media/mindmap.js` (getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
- * findBodyItemByLineIdx / reformatBodyLines / normalizeBodyCheckboxes). The webview script is served as a
+ * findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
+ * normalizeBodyCheckboxes). The webview script is served as a
  * raw static asset and is NOT bundled by esbuild, so the logic is intentionally
  * duplicated here for unit testing. If you change the parsing rules in one
  * place, mirror the change in the other or the on-disk model and the rendered
@@ -25,7 +26,17 @@ export interface BodyItem {
 export function getBodyItems(bodyText: string): BodyItem[] {
   const lines = (bodyText || '').split('\n');
   const items: BodyItem[] = [];
+  let fenceChar: '`' | '~' | null = null;
   lines.forEach((line, idx) => {
+    const fence = line.match(/^[ \t]*(`{3,}|~{3,})/);
+    if (fence) {
+      const ch = fence[1][0] as '`' | '~';
+      if (fenceChar === null) fenceChar = ch;
+      else if (fenceChar === ch) fenceChar = null;
+      return;
+    }
+    if (fenceChar !== null) return;
+
     const chk = line.match(/^(\s*)-\s+\[([ xX])\]\s+(.*)$/);
     const bul = !chk && line.match(/^(\s*)-\s+(.*)$/);
     if (chk) {
@@ -88,6 +99,22 @@ export function findBodyItemByLineIdx(
     if (found) return found;
   }
   return null;
+}
+
+/** Remove deleted collapse entries and shift entries after the deleted range. */
+export function remapCollapsedBodyLinesAfterDelete(
+  collapsedSet: Set<number> | undefined,
+  startLineIdx: number,
+  lineCount: number
+): Set<number> | undefined {
+  if (!collapsedSet) return collapsedSet;
+  const endLineIdx = startLineIdx + lineCount;
+  const remapped = new Set<number>();
+  for (const lineIdx of collapsedSet) {
+    if (lineIdx < startLineIdx) remapped.add(lineIdx);
+    else if (lineIdx >= endLineIdx) remapped.add(lineIdx - lineCount);
+  }
+  return remapped;
 }
 
 /**

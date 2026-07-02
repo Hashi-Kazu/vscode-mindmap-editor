@@ -177,6 +177,7 @@ test('performUndo が editingId/bodyEditing を解除する', () => {
     let undoStack = [{ id: 'previous' }];
     function render() {}
     function postStructuralEdit() {}
+    function postBodyItemCollapseState() {}
     ${src}
     performUndo();
     return { editingId, bodyEditing, root };
@@ -200,4 +201,59 @@ test('keydown で Ctrl+Z が編集ガードの後に評価される', () => {
   assert.ok(saveIdx >= 0, "Ctrl+S ({ type: 'save' }) not found in keydown handler");
   assert.ok(undoIdx > guardIdx, 'Ctrl+Z must be evaluated AFTER the editing guard');
   assert.ok(saveIdx < guardIdx, 'Ctrl+S must remain available while editing (before the guard)');
+});
+
+test('R-13-14: render releases unconsumed _pendingBodyEdit and bodyEditing', () => {
+  const src = extractFunction('render');
+  assert.ok(src.includes('if (_pendingBodyEdit)'));
+  assert.ok(src.includes('_pendingBodyEdit = null'));
+  assert.ok(src.includes('bodyEditing = false'));
+  assert.ok(src.includes('applyPendingUpdate()'));
+});
+
+test('R-13-14: addBodyItem resets checked filter for top-level add', () => {
+  const src = extractFunction('addBodyItem');
+  assert.ok(src.includes("indent === 0 && checkboxFilter === 'checked'"));
+  assert.ok(src.includes("setCheckboxFilter('all')"));
+});
+
+test('R-10-02: toggleBodyItemCollapse pushes undo', () => {
+  const src = extractFunction('toggleBodyItemCollapse');
+  const harness = new Function(`
+    let undoCount = 0;
+    const pushUndo = () => { undoCount++; };
+    const render = () => {};
+    const postBodyItemCollapseState = () => {};
+    ${src}
+    return { toggleBodyItemCollapse, get undoCount() { return undoCount; } };
+  `)() as {
+    toggleBodyItemCollapse: (item: { lineIdx: number }, parentNode: { collapsedBodyLines?: Set<number> }) => void;
+    undoCount: number;
+  };
+  harness.toggleBodyItemCollapse({ lineIdx: 3 }, {});
+  assert.equal(harness.undoCount, 1);
+});
+
+test('R-10-04: cloneForUndo copies collapsedBodyLines as a new Set', () => {
+  const src = extractFunction('cloneForUndo');
+  const cloneForUndo = new Function(`${src}; return cloneForUndo;`)() as (node: {
+    id: string; text: string; level: number; collapsed: boolean; body: string;
+    side?: string; collapsedBodyLines?: Set<number>; children: unknown[];
+  }) => { collapsedBodyLines?: Set<number> };
+  const original = {
+    id: 'n', text: 'node', level: 1, collapsed: false, body: '', side: 'right',
+    collapsedBodyLines: new Set([1, 4]), children: [],
+  };
+  const cloned = cloneForUndo(original);
+
+  assert.deepEqual(cloned.collapsedBodyLines, original.collapsedBodyLines);
+  assert.notEqual(cloned.collapsedBodyLines, original.collapsedBodyLines);
+});
+
+test('R-13-13: root add-body is disabled in context menu and guarded in handler', () => {
+  const menuSrc = extractFunction('showHeadingContextMenu');
+  const handlerSrc = extractFunction('handleContextAction');
+  assert.ok(menuSrc.includes('disabled: !!(root && node.id === root.id)'));
+  assert.ok(handlerSrc.includes("case 'add-body'"));
+  assert.ok(handlerSrc.includes('contextTarget.id !== root.id'));
 });
