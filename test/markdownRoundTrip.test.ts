@@ -801,6 +801,26 @@ test('heading text whitespace is trimmed and stays stable across round-trip', ()
   assert.equal(assertStable(input), '# Spaced Title\nbody\n');
 });
 
+// ─── 空フロントマターの冪等性 (BUG-06) ───────────────────────────────────────
+
+// NF-02-01: 空フロントマター（---/---）がラウンドトリップで壊れず、
+// `---` 行が編集のたびに増殖しない
+test('NF-02-01: empty frontmatter (---/---) round-trips unchanged and does not multiply', () => {
+  const input = ['---', '---', '', '# A', 'body', ''].join('\n');
+  const out = assertStable(input);
+  assert.ok(out.startsWith('---\n---\n'), 'empty frontmatter must be preserved');
+  const delimiterLines = out.split('\n').filter((line) => line === '---');
+  assert.equal(delimiterLines.length, 2, '--- lines must not multiply');
+});
+
+// NF-02-01: 値が --- で終わるフロントマターがデリミタ剥がしで壊れない
+// （`\n?---$` 化による誤剥がしがないことの回帰確認）
+test('NF-02-01: frontmatter value ending with --- is not corrupted by delimiter stripping', () => {
+  const input = ['---', 'title: abc---', '---', '', '# A', 'body', ''].join('\n');
+  const out = assertStable(input);
+  assert.ok(out.includes('title: abc---'), 'trailing --- in a value must be preserved');
+});
+
 // ─── mindmap-left ラウンドトリップテスト (R-20) ──────────────────────────────
 
 // S20-01: mindmap-left に記載された H1 ノードに side='left' が付与される

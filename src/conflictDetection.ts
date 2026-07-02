@@ -13,9 +13,11 @@
 /**
  * Normalize newlines so a CRLF/LF difference (common across shared drives and
  * Git autocrlf setups) is never mistaken for a real content conflict.
+ * A leading UTF-8 BOM (U+FEFF) is also stripped: disk reads keep the BOM while
+ * `TextDocument.getText()` drops it, so a BOM-only difference is not a conflict.
  */
 export function normalizeText(text: string): string {
-  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  return text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
 /**

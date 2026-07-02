@@ -110,6 +110,16 @@
   let bodyDragState = null;
   let panState = null;
   let undoStack = [];
+  // Sync-generation bookkeeping (R-11-09 / R-19-04):
+  // appliedGeneration/appliedDocUri identify the extension tree snapshot the
+  // current `root` derives from; both are echoed back on structuralEdit so the
+  // extension can detect stale-base / wrong-document edits.
+  // pendingUpdate holds the LATEST 'update' that arrived while an inline edit
+  // or drag was in progress (never applied mid-operation — replacing root
+  // during a drag invalidates dragState.node and drops fail silently, v2.6.4).
+  let appliedGeneration = 0;
+  let appliedDocUri = null;
+  let pendingUpdate = null;
   let clipboard = null; // { type: 'heading'|'body', lines?: string[], indent?: number, node?: object, nodes?: object[] }
 
   // ─── DOM refs ─────────────────────────────────────────────────────────────
@@ -902,6 +912,7 @@
         } else {
           // Target item vanished (e.g. re-synced away) — release the guard.
           bodyEditing = false;
+          applyPendingUpdate();
         }
       });
     }
@@ -1117,12 +1128,21 @@
   // ─── Keyboard handler ─────────────────────────────────────────────────────
 
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); performUndo(); return; }
+    // Ctrl+S stays available while editing: it only posts a message and never
+    // touches the DOM, so it cannot tear down the live inline <input>.
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); vscode.postMessage({ type: 'save' }); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '=') { zoomBy(1.25); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '-') { zoomBy(1 / 1.25); return; }
 
-    if (editingId) return;
+    // While an inline edit is active (heading OR body item — including the
+    // rAF window right after addBodyItem where the input is not mounted yet),
+    // all map-level shortcuts are disabled. Ctrl+Z in particular must NOT run
+    // performUndo here: the resulting render() destroys the live <input>
+    // without firing blur, leaving editingId/bodyEditing locked forever
+    // (BUG-04). The input's native undo handles Ctrl+Z instead (R-12-09).
+    if (editingId || bodyEditing) return;
+
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); performUndo(); return; }
 
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); performCopy(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'x') { e.preventDefault(); performCut(); return; }
@@ -1318,7 +1338,17 @@
   }
 
   function postStructuralEdit() {
-    vscode.postMessage({ type: 'structuralEdit', root });
+    // Committing a local structural change supersedes any held external
+    // update: drop it and let the extension's post-commit re-sync (and, when
+    // our base generation is stale, its conflict-resolution flow) decide the
+    // final state instead of applying the stale held tree here (R-11-09).
+    pendingUpdate = null;
+    vscode.postMessage({
+      type: 'structuralEdit',
+      root,
+      baseGeneration: appliedGeneration,
+      docUri: appliedDocUri,
+    });
   }
 
   function moveNode(node, delta) {
@@ -1368,8 +1398,9 @@
         postStructuralEdit();
       }
       render();
+      applyPendingUpdate();
     };
-    const cancel = () => { editingId = null; render(); };
+    const cancel = () => { editingId = null; render(); applyPendingUpdate(); };
 
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (e) => {
@@ -1399,8 +1430,9 @@
         updateBodyLine(parentNode, item.lineIdx, trimmed, item.indent);
       }
       render();
+      applyPendingUpdate();
     };
-    const cancel = () => { bodyEditing = false; render(); };
+    const cancel = () => { bodyEditing = false; render(); applyPendingUpdate(); };
 
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (e) => {
@@ -1715,16 +1747,20 @@
     dragState = null;
     ds.ghost.remove();
     clearDropFeedback();
-    if (!ds.moved) return;
-    if (result && result.position !== 'h6-blocked') {
-      if (ds.nodes && ds.nodes.length > 1) {
-        performMultiDrop(ds.nodes, result.targetNode, result.position);
-      } else {
-        performDrop(ds.node, result.targetNode, result.position);
+    if (ds.moved) {
+      if (result && result.position !== 'h6-blocked') {
+        if (ds.nodes && ds.nodes.length > 1) {
+          performMultiDrop(ds.nodes, result.targetNode, result.position);
+        } else {
+          performDrop(ds.node, result.targetNode, result.position);
+        }
       }
+      render();
     }
-    render();
-
+    // Drag lock released — apply an update held during the drag. A completed
+    // drop already cleared it via postStructuralEdit; this covers no-op drags
+    // and drops that did not commit anything.
+    applyPendingUpdate();
   }
 
   function updateDropFeedback(e, draggedNode) {
@@ -1783,7 +1819,11 @@
     if (sx >= nx - tolerance && sx <= nx + nw + tolerance && sy >= ny - tolerance && sy <= ny + nh + tolerance) {
       const relY = sy - ny;
       let pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
-      if (pos === 'inside' && node.level >= 6) pos = 'h6-blocked';
+      // R-02-08: block drops whose result (including the dragged subtree depth)
+      // would produce a heading level beyond H6.
+      const maxDepth = Math.max(...draggedArr.map(subtreeDepth));
+      if (pos === 'inside' && node.level + 1 + maxDepth > 6) pos = 'h6-blocked';
+      else if ((pos === 'before' || pos === 'after') && node.level + maxDepth > 6) pos = 'h6-blocked';
       // Root node: split inside zone into left/right halves
       if (pos === 'inside' && node === root) {
         const relX = sx - nx;
@@ -1797,6 +1837,10 @@
   // Drop multiple nodes at a target position
   function performMultiDrop(nodes, targetNode, position) {
     if (!root) return;
+    // R-02-10: validate the drop target before mutating anything. A before/after
+    // drop on the root node has no resolvable parent; ignore it so nodes are
+    // never removed without being re-inserted.
+    if (position !== 'inside' && position !== 'root-left' && position !== 'root-right' && !findParent(root, targetNode)) return;
     pushUndo();
     // Remove all dragged nodes from their parents first
     const removedNodes = [];
@@ -1923,8 +1967,10 @@
     bodyDragState = null;
     ds.ghost.remove();
     clearBodyDropFeedback();
-    if (!ds.moved) return;
-    performBodyDrop(e, ds);
+    if (ds.moved) performBodyDrop(e, ds);
+    // Drag lock released — apply an update held during the drag (a committed
+    // drop already cleared it via postStructuralEdit).
+    applyPendingUpdate();
   }
 
   function updateBodyDropFeedback(e, ds) {
@@ -2443,6 +2489,12 @@
     node.children.forEach(c => { c.level = node.level + 1; updateChildLevels(c); });
   }
 
+  // Max relative depth of a subtree: 0 for a leaf, regardless of collapsed state.
+  function subtreeDepth(node) {
+    if (!node.children || node.children.length === 0) return 0;
+    return 1 + Math.max(...node.children.map(subtreeDepth));
+  }
+
   // ─── Undo ─────────────────────────────────────────────────────────────────
 
   function cloneForUndo(node) {
@@ -2456,6 +2508,11 @@
   }
 
   function performUndo() {
+    // Defensive unlock (BUG-04): render() below destroys any live inline
+    // <input> WITHOUT firing its blur handler, so a stuck editingId/bodyEditing
+    // would lock the map forever. Clear both before restoring the tree.
+    editingId = null;
+    bodyEditing = false;
     if (!undoStack.length) return;
     root = undoStack.pop();
     selectedId = null;
@@ -2465,7 +2522,7 @@
     selectedBodyItemKeys.clear();
     selectedBodyItemsData.clear();
     render();
-    vscode.postMessage({ type: 'structuralEdit', root });
+    postStructuralEdit();
   }
 
   // ─── Keyboard Navigation ──────────────────────────────────────────────────
@@ -2669,44 +2726,77 @@
 
   // ─── Message from Extension ───────────────────────────────────────────────
 
+  /**
+   * Apply an 'update' message: replace the tree, restore collapse state,
+   * re-resolve the body-item selection, and record which sync generation /
+   * document the new root derives from (echoed back on structuralEdit).
+   */
+  function applyUpdateMessage(msg) {
+    appliedGeneration = msg.generation;
+    appliedDocUri = msg.docUri;
+    const bodySelectionLocator = selectedBodyItemData && root
+      ? createBodyItemSelectionLocator(
+          root,
+          selectedBodyItemData.parentNode.id,
+          selectedBodyItemData.lineIdx
+        )
+      : null;
+    root = msg.root;
+    // Restore body item collapse state from frontmatter
+    if (msg.bodyItemCollapsePaths) {
+      applyBodyItemCollapsePaths(msg.bodyItemCollapsePaths);
+    }
+    if (bodySelectionLocator) {
+      const rebound = resolveBodyItemSelection(root, bodySelectionLocator);
+      clearBodyItemSelection();
+      if (rebound) {
+        selectedId = null;
+        selectedIds.clear();
+        selectedBodyItemKey = `${rebound.parentNode.id}:${rebound.item.lineIdx}`;
+        selectedBodyItemData = {
+          parentNode: rebound.parentNode,
+          lineIdx: rebound.item.lineIdx,
+          indent: rebound.item.indent
+        };
+      }
+    } else if (selectedBodyItemData) {
+      clearBodyItemSelection();
+    }
+    render();
+  }
+
+  /**
+   * Handle an incoming 'update'. While an inline edit (heading or body item)
+   * or a drag is in progress the tree must NOT be replaced immediately:
+   * re-render would tear down the live <input> mid-typing, and replacing root
+   * would invalidate dragState.node references, causing findParent to return
+   * null and silently failing the drop (v2.6.4 regression guard). Instead the
+   * LATEST such update is held in pendingUpdate and applied once the
+   * operation ends (R-11-09) — unless the operation commits a structural
+   * edit, which clears it and defers to the extension's re-sync.
+   */
+  function handleUpdateMessage(msg) {
+    if (editingId || bodyEditing || dragState || bodyDragState) {
+      pendingUpdate = msg;
+      return;
+    }
+    pendingUpdate = null;
+    applyUpdateMessage(msg);
+  }
+
+  /** Apply a held update once every operation lock has been released. */
+  function applyPendingUpdate() {
+    if (editingId || bodyEditing || dragState || bodyDragState) return;
+    if (!pendingUpdate) return;
+    const msg = pendingUpdate;
+    pendingUpdate = null;
+    applyUpdateMessage(msg);
+  }
+
   window.addEventListener('message', (event) => {
     const msg = event.data;
     if (msg.type === 'update') {
-      // Skip re-render while an inline edit (heading or body item) is in
-      // progress so the live <input> isn't torn down mid-typing.
-      // Also skip during drag operations: replacing root would invalidate
-      // dragState.node references, causing findParent to return null and
-      // silently failing the drop (the node would appear duplicated on retry).
-      if (editingId || bodyEditing || dragState || bodyDragState) return;
-      const bodySelectionLocator = selectedBodyItemData && root
-        ? createBodyItemSelectionLocator(
-            root,
-            selectedBodyItemData.parentNode.id,
-            selectedBodyItemData.lineIdx
-          )
-        : null;
-      root = msg.root;
-      // Restore body item collapse state from frontmatter
-      if (msg.bodyItemCollapsePaths) {
-        applyBodyItemCollapsePaths(msg.bodyItemCollapsePaths);
-      }
-      if (bodySelectionLocator) {
-        const rebound = resolveBodyItemSelection(root, bodySelectionLocator);
-        clearBodyItemSelection();
-        if (rebound) {
-          selectedId = null;
-          selectedIds.clear();
-          selectedBodyItemKey = `${rebound.parentNode.id}:${rebound.item.lineIdx}`;
-          selectedBodyItemData = {
-            parentNode: rebound.parentNode,
-            lineIdx: rebound.item.lineIdx,
-            indent: rebound.item.indent
-          };
-        }
-      } else if (selectedBodyItemData) {
-        clearBodyItemSelection();
-      }
-      render();
+      handleUpdateMessage(msg);
     }
     if (msg.type === 'saved') showSaveIndicator();
     if (msg.type === 'setFontSize') {

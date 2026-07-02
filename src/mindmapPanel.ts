@@ -3,6 +3,7 @@ import * as path from 'path';
 import { parseMarkdown, extractCollapsedPaths, applyCollapsedPaths, extractLeftPaths } from './markdownParser';
 import { serializeToMarkdown } from './markdownSerializer';
 import { detectConflict, normalizeText } from './conflictDetection';
+import { classifyStructuralEdit } from './syncGuard';
 import { MindMapNode } from './types';
 
 export class MindMapPanel {
@@ -33,6 +34,16 @@ export class MindMapPanel {
   // concurrent external edit (shared drive / Git pull) is detected instead of
   // being silently clobbered. null until the first sync.
   private baseText: string | null = null;
+
+  // Monotonic counter incremented on every syncFromDocument push. Sent to the
+  // webview with each 'update' and echoed back on structuralEdit, so we can
+  // tell which tree snapshot an edit was based on (R-11-09).
+  private syncGeneration = 0;
+  // The most recent generation whose content DIFFERED from the previous base —
+  // i.e. contained an external (non-echo) change. A structuralEdit based on an
+  // older generation missed that change and must go through conflict
+  // resolution instead of silently overwriting it.
+  private lastExternalGeneration = 0;
 
   // Guard against echo loops: skip onDidChangeTextDocument while we apply our own edit
   private applyingEdit = false;
@@ -214,15 +225,30 @@ export class MindMapPanel {
       text,
       doc.uri.fsPath
     );
+    const normalized = normalizeText(text);
+    // Every push gets a new generation. Only pushes whose content differs from
+    // the previous base advance the EXTERNAL generation — echo re-syncs right
+    // after our own commit keep it unchanged, so rapid consecutive webview
+    // edits are not misclassified as stale (R-11-09).
+    this.syncGeneration++;
+    if (this.baseText === null || normalized !== this.baseText) {
+      this.lastExternalGeneration = this.syncGeneration;
+    }
     // Record the base snapshot the cached tree derives from, so the next write
     // can detect concurrent external edits against it.
-    this.baseText = normalizeText(text);
+    this.baseText = normalized;
     this.lastRoot = root;
     this.lastFrontmatter = frontmatter;
     this.lastPreamble = preamble;
     this.lastBodyItemCollapsePaths = bodyItemCollapsePaths;
     this.lastLeftPaths = leftPaths;
-    this.panel.webview.postMessage({ type: 'update', root, bodyItemCollapsePaths });
+    this.panel.webview.postMessage({
+      type: 'update',
+      root,
+      bodyItemCollapsePaths,
+      generation: this.syncGeneration,
+      docUri: doc.uri.toString(),
+    });
     // Keep the on-disk file in sync with what the webview displays.
     // Without this, source-editor edits remain in the dirty in-memory document
     // but never reach disk — closing and reopening the file shows stale content.
@@ -254,11 +280,31 @@ export class MindMapPanel {
       }
 
       case 'structuralEdit': {
+        const decision = classifyStructuralEdit({
+          msgDocUri: typeof msg.docUri === 'string' ? msg.docUri : undefined,
+          currentDocUri: this.document.uri.toString(),
+          baseGeneration:
+            typeof msg.baseGeneration === 'number' ? msg.baseGeneration : undefined,
+          lastExternalGeneration: this.lastExternalGeneration,
+        });
+        if (decision === 'discardWrongDocument') {
+          // The edit targeted a document this panel no longer shows (viewer
+          // switched while the edit was in flight). Never write it to the
+          // current document — discard, notify, re-sync (R-19-04).
+          void vscode.window.showWarningMessage(
+            'ビューアのドキュメント切替により、切替前のマインドマップ編集は適用されませんでした。現在のドキュメントを再表示します。'
+          );
+          this.syncFromDocument(this.document);
+          break;
+        }
         this.isOperating = true;
         try {
           const webRoot = msg.root as MindMapNode;
           this.lastRoot = webRoot;
-          await this.commitTree();
+          // A stale-generation edit missed an external change (it slipped past
+          // the webview while an inline edit / drag held the update). Force it
+          // through the R-11-06 conflict-resolution flow (R-11-09).
+          await this.commitTree(undefined, false, decision === 'conflictStaleBase');
         } finally {
           this.isOperating = false;
         }
@@ -337,7 +383,8 @@ export class MindMapPanel {
 
   private async commitTree(
     collapsedPaths?: string[],
-    skipConflictCheck = false
+    skipConflictCheck = false,
+    forceConflictCheck = false
   ): Promise<void> {
     if (!this.lastRoot) return;
     const collapsed = collapsedPaths ?? extractCollapsedPaths(this.lastRoot);
@@ -351,15 +398,31 @@ export class MindMapPanel {
       this.lastBodyItemCollapsePaths,
       leftPaths
     );
-    await this.applyDocumentEdit(newContent, skipConflictCheck);
+    await this.applyDocumentEdit(newContent, skipConflictCheck, forceConflictCheck);
   }
 
-  private applyDocumentEdit(newContent: string, skipConflictCheck = false): Promise<void> {
+  private applyDocumentEdit(
+    newContent: string,
+    skipConflictCheck = false,
+    forceConflictCheck = false
+  ): Promise<void> {
+    // Capture the write target at ENQUEUE time: if a queued performSwitch runs
+    // before this write, this.document will point at a DIFFERENT file by the
+    // time run() executes, and writing would clobber it with the old tree.
+    const expectedUri = this.document.uri.toString();
     // Chain onto the queue so writes execute one at a time. Each write
     // re-computes fullRange from the live document, preventing the stale-range
     // bug where a concurrent write with the pre-edit length would leave tail
     // content behind and duplicate nodes in the parsed tree.
     const run = async (): Promise<void> => {
+      if (this.document.uri.toString() !== expectedUri) {
+        // Document was switched while this write sat in the queue — never
+        // write the old tree into the new file (R-19-04).
+        void vscode.window.showWarningMessage(
+          'ビューアのドキュメント切替により、切替前のマインドマップ編集は適用されませんでした。'
+        );
+        return;
+      }
       // Re-acquire the live document: if the source editor was closed, our
       // cached this.document may be a disposed instance whose save() no-ops,
       // and applyEdit against its URI would force a fresh editor to open.
@@ -372,9 +435,19 @@ export class MindMapPanel {
       // the freshly-parsed cached tree and never touch user body/other
       // frontmatter (NF-03), so a concurrent-change check here would only ever
       // produce false positives that silently drop the collapse write. Skip it.
-      if (!skipConflictCheck && (await this.hasConcurrentChange(newContent))) {
-        const resolved = await this.resolveConflict(newContent);
-        if (!resolved) return; // user chose "load latest" — abandon this write
+      if (!skipConflictCheck) {
+        let conflict = await this.hasConcurrentChange(newContent);
+        if (!conflict && forceConflictCheck) {
+          // Stale-generation edit (R-11-09): treat as conflict even when the
+          // base comparison passes — unless the outgoing content already
+          // matches the live document (echo), where a modal would be noise.
+          conflict =
+            normalizeText(this.document.getText()) !== normalizeText(newContent);
+        }
+        if (conflict) {
+          const resolved = await this.resolveConflict(newContent);
+          if (!resolved) return; // user chose "load latest" — abandon this write
+        }
       }
 
       this.applyingEdit = true;

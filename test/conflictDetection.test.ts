@@ -112,3 +112,21 @@ test('normalizeText returns empty string unchanged', () => {
 test('normalizeText collapses consecutive CRLF into consecutive LF', () => {
   assert.equal(normalizeText('a\r\n\r\nb'), 'a\n\nb');
 });
+
+// ─── UTF-8 BOM 差異の吸収 (BUG-12) ──────────────────────────────────────────
+
+// R-11-05: 先頭 BOM のみの差異はコンフリクトではない
+// （ディスク読み取りは BOM を保持し TextDocument.getText() は BOM を落とすため）
+test('R-11-05: leading BOM difference alone is not a conflict', () => {
+  assert.equal(detectConflict('# A\nbody\n', '﻿# A\nbody\n', '# A\nedit\n'), false);
+});
+
+// R-11-05: base 側だけ BOM 付きでも内容が同じなら衝突しない
+test('R-11-05: BOM in base vs no BOM in current with same content is not a conflict', () => {
+  assert.equal(detectConflict('﻿# A\nbody\n', '# A\nbody\n', '# A\nedit\n'), false);
+});
+
+// R-11-05: BOM 付きでも実内容が変わっていれば引き続き衝突として扱う
+test('R-11-05: BOM-prefixed current with real content change is still a conflict', () => {
+  assert.equal(detectConflict('# A\nbody\n', '﻿# A\nCHANGED\n', '# A\nedit\n'), true);
+});

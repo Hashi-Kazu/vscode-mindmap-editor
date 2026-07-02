@@ -83,17 +83,23 @@ function buildFrontmatter(
     return blocks ? `---\n${blocks}\n---` : '';
   }
 
-  // Strip the --- delimiters and remove old managed blocks
-  const inner = existing
-    .replace(/^---\n/, '')
-    .replace(/\n---$/, '')
+  // Strip the --- delimiters. `\n?---$` (not `\n---$`) so a truly empty
+  // frontmatter (`---\n---`) loses its closing delimiter too instead of
+  // leaving a stray `---` that would multiply on every round-trip.
+  const innerRaw = existing.replace(/^---\n/, '').replace(/\n?---$/, '');
+
+  // Remove old managed blocks
+  const inner = innerRaw
     .replace(/mindmap-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
     .replace(/body-item-collapse:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
     .replace(/mindmap-left:\s*\n(?:[ \t]+-[ \t]+.+\n?)*/g, '')
     .trim();
 
   const newInner = [inner, collapseBlock, bodyCollapseBlock, leftBlock].filter(Boolean).join('\n');
-  return newInner ? `---\n${newInner}\n---` : '';
+  if (newInner) return `---\n${newInner}\n---`;
+  // The user wrote a truly empty frontmatter → keep it (never lose user
+  // frontmatter). If it only held managed blocks, drop the whole block.
+  return innerRaw.trim() === '' ? '---\n---' : '';
 }
 
 /** Remove a leading "<root>/" segment from a slash-separated heading path. */
