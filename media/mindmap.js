@@ -145,6 +145,219 @@
   let pendingUpdate = null;
   let clipboard = null; // { type: 'heading'|'body', lines?: string[], indent?: number, node?: object, nodes?: object[] }
 
+  // ─── Multi-Select Helpers (R-18-01/02/07/09/10/11) ───────────────────────
+  // Multi-select is restricted to siblings sharing the same parent (heading
+  // nodes) or the same parent + indent (body items). Ctrl+click either adds
+  // a same-parent sibling to the selection, or — if the clicked node belongs
+  // to a different parent — resets the selection to that node alone.
+
+  /**
+   * Ctrl/Cmd+click on a heading node: toggle it into/out of the current
+   * multi-selection if it shares the same parent as the existing selection;
+   * otherwise reset the selection to just this node (R-18-01).
+   */
+  function ctrlClickSelectHeading(node) {
+    const parent = root ? findParent(root, node) : null;
+    const repId = selectedIds.size > 0 ? [...selectedIds][0] : selectedId;
+    let sameParent = true;
+    if (repId && repId !== node.id) {
+      const repNode = root ? findById(root, repId) : null;
+      const repParent = repNode && root ? findParent(root, repNode) : null;
+      sameParent = !!parent && !!repParent && parent.id === repParent.id;
+    }
+    if (!sameParent) {
+      selectedIds.clear();
+      selectedBodyItemKeys.clear();
+      selectedBodyItemsData.clear();
+      selectedId = node.id;
+      selectedBodyItemKey = null;
+      selectedBodyItemData = null;
+      return;
+    }
+    if (selectedIds.has(node.id)) {
+      selectedIds.delete(node.id);
+      if (selectedId === node.id) {
+        selectedId = selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : null;
+      }
+    } else {
+      if (selectedId) selectedIds.add(selectedId);
+      selectedIds.add(node.id);
+      selectedId = node.id;
+      selectedBodyItemKey = null;
+      selectedBodyItemData = null;
+      selectedBodyItemKeys.clear();
+      selectedBodyItemsData.clear();
+    }
+  }
+
+  /**
+   * Ctrl/Cmd+click on a body item: toggle it into/out of the current
+   * multi-selection if it shares the same parent node AND indent as the
+   * existing selection; otherwise reset the selection to just this item
+   * (R-18-02).
+   */
+  function ctrlClickSelectBodyItem(parentNode, item, key) {
+    const repKey = selectedBodyItemKey || ([...selectedBodyItemKeys][0] || null);
+    let sameGroup = true;
+    if (repKey && repKey !== key) {
+      const repData = repKey === selectedBodyItemKey ? selectedBodyItemData : selectedBodyItemsData.get(repKey);
+      sameGroup = !!repData && repData.parentNode && repData.parentNode.id === parentNode.id && repData.indent === item.indent;
+    }
+    if (!sameGroup) {
+      selectedBodyItemKeys.clear();
+      selectedBodyItemsData.clear();
+      selectedId = null;
+      selectedIds.clear();
+      selectedBodyItemKey = key;
+      selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+      return;
+    }
+    if (selectedBodyItemKeys.has(key)) {
+      selectedBodyItemKeys.delete(key);
+      selectedBodyItemsData.delete(key);
+      if (selectedBodyItemKey === key) {
+        selectedBodyItemKey = selectedBodyItemKeys.size > 0 ? [...selectedBodyItemKeys][selectedBodyItemKeys.size - 1] : null;
+        selectedBodyItemData = selectedBodyItemKey ? selectedBodyItemsData.get(selectedBodyItemKey) : null;
+      }
+    } else {
+      if (selectedBodyItemKey) {
+        selectedBodyItemKeys.add(selectedBodyItemKey);
+        selectedBodyItemsData.set(selectedBodyItemKey, selectedBodyItemData);
+      }
+      selectedBodyItemKeys.add(key);
+      selectedBodyItemsData.set(key, { parentNode, lineIdx: item.lineIdx, indent: item.indent });
+      selectedBodyItemKey = key;
+      selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+      selectedId = null;
+      selectedIds.clear();
+    }
+  }
+
+  /** Total number of currently multi-selected heading nodes (selectedIds ∪ selectedId). */
+  function headingMultiSelectCount() {
+    return selectedIds.size + (selectedId && !selectedIds.has(selectedId) ? 1 : 0);
+  }
+
+  /** True if `nodeId` is a member of an active (>=2) heading multi-selection. */
+  function isHeadingMultiSelectMember(nodeId) {
+    return headingMultiSelectCount() >= 2 && (selectedIds.has(nodeId) || selectedId === nodeId);
+  }
+
+  /** Resolve all currently multi-selected heading nodes (selectedIds ∪ selectedId) to Node objects. */
+  function getMultiSelectedHeadingNodes() {
+    if (!root) return [];
+    const ids = new Set(selectedIds);
+    if (selectedId) ids.add(selectedId);
+    return [...ids].map(id => findById(root, id)).filter(Boolean);
+  }
+
+  /** Total number of currently multi-selected body items (selectedBodyItemKeys ∪ selectedBodyItemKey). */
+  function bodyItemMultiSelectCount() {
+    return selectedBodyItemKeys.size + (selectedBodyItemKey && !selectedBodyItemKeys.has(selectedBodyItemKey) ? 1 : 0);
+  }
+
+  /** True if `key` is a member of an active (>=2) body-item multi-selection. */
+  function isBodyItemMultiSelectMember(key) {
+    return bodyItemMultiSelectCount() >= 2 && (selectedBodyItemKeys.has(key) || selectedBodyItemKey === key);
+  }
+
+  /** Resolve all currently multi-selected body items to { parentNode, lineIdx, indent } data. */
+  function getMultiSelectedBodyItemsData() {
+    const map = new Map();
+    for (const [k, d] of selectedBodyItemsData) map.set(k, d);
+    if (selectedBodyItemKey && selectedBodyItemData) map.set(selectedBodyItemKey, selectedBodyItemData);
+    return [...map.values()];
+  }
+
+  /**
+   * Bulk-demote heading nodes into body items of their (shared) parent
+   * (R-18-09). Callers must ensure every node is demote-eligible before
+   * calling (root/level-0/has-children checks happen per-node defensively).
+   * Records a single undo snapshot for the whole batch.
+   */
+  function demoteNodesToBodyItems(nodes) {
+    if (!root || !nodes.length) return;
+    // Preserve document order (siblings share one parent by construction).
+    const parent0 = findParent(root, nodes[0]);
+    const ordered = parent0
+      ? [...nodes].sort((a, b) => parent0.children.indexOf(a) - parent0.children.indexOf(b))
+      : nodes;
+    pushUndo();
+    for (const node of ordered) {
+      if (!root || node.id === root.id || node.level === 0 || node.children.length > 0) continue;
+      const parent = findParent(root, node);
+      if (!parent) continue;
+      const headingLine = `- ${node.text}`;
+      const bodyLines = node.body.trim()
+        ? reformatBodyLines((node.body || '').split('\n'), 0, 2)
+        : [];
+      const newLines = [headingLine, ...bodyLines];
+      const lines = (parent.body || '').split('\n');
+      while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+      const isEmpty = lines.length === 1 && lines[0] === '';
+      parent.body = isEmpty ? newLines.join('\n') : [...lines, ...newLines].join('\n');
+      parent.children = parent.children.filter(c => c.id !== node.id);
+    }
+    selectedId = null;
+    selectedIds.clear();
+    postStructuralEdit();
+    render();
+  }
+
+  /**
+   * Bulk-promote body items (indent 0) into sibling heading nodes of their
+   * (shared) parent (R-18-10). Records a single undo snapshot for the whole
+   * batch. Processes bottom-to-top by lineIdx to avoid index-shift issues
+   * while splicing lines out of the shared body text.
+   */
+  function promoteBodyItemsToNodes(items) {
+    if (!root || !items.length) return;
+    const ordered = [...items].sort((a, b) => b.lineIdx - a.lineIdx);
+    pushUndo();
+    for (const it of ordered) {
+      const parentNode = it.parentNode;
+      const tree = getBodyItemTree(parentNode.body);
+      const item = findBodyItemByLineIdx(tree, it.lineIdx);
+      if (!item || item.indent !== 0 || parentNode.level >= 6) continue;
+      const lastLine = bodyItemLastLineIdx(item);
+      const lineCount = lastLine - it.lineIdx + 1;
+      const lines = (parentNode.body || '').split('\n');
+      lines.splice(it.lineIdx, lineCount);
+      parentNode.collapsedBodyLines = remapCollapsedBodyLinesAfterDelete(parentNode.collapsedBodyLines, it.lineIdx, lineCount);
+      while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+      parentNode.body = lines.join('\n');
+
+      const newNode = makeNode(item.text, parentNode.level + 1);
+      newNode.body = bodyItemTreeToLines(item.children, 0).join('\n');
+      parentNode.children.unshift(newNode);
+      parentNode.collapsed = false;
+    }
+    selectedBodyItemKey = null;
+    selectedBodyItemData = null;
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
+    postStructuralEdit();
+    render();
+  }
+
+  /**
+   * Bulk-convert body items to `targetType` ('checkbox' | 'bullet')
+   * (R-18-11). Records a single undo snapshot for the whole batch.
+   */
+  function toggleBodyItemsType(items, targetType) {
+    if (!root || !items.length) return;
+    pushUndo();
+    for (const it of items) {
+      it.parentNode.body = toggleBodyItemType(it.parentNode.body, it.lineIdx, targetType);
+    }
+    selectedBodyItemKey = null;
+    selectedBodyItemData = null;
+    selectedBodyItemKeys.clear();
+    selectedBodyItemsData.clear();
+    postStructuralEdit();
+    render();
+  }
+
   // ─── DOM refs ─────────────────────────────────────────────────────────────
 
   const stage        = document.getElementById('stage');
@@ -762,24 +975,17 @@
       e.stopPropagation();
       hideContextMenu();
       if (e.ctrlKey || e.metaKey) {
-        // Multi-select: toggle this node in selection
-        if (selectedIds.has(node.id)) {
-          selectedIds.delete(node.id);
-          div.classList.remove('selected');
-          if (selectedId === node.id) {
-            // Move primary selection to another selected node or null
-            selectedId = selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : null;
-          }
-        } else {
-          // Add to multi-select; include current primary selection
-          if (selectedId) selectedIds.add(selectedId);
-          selectedIds.add(node.id);
-          selectedId = node.id;
-          selectedBodyItemKey = null;
-          selectedBodyItemData = null;
-          selectedBodyItemKeys.clear();
-          selectedBodyItemsData.clear();
-          div.classList.add('selected');
+        // Multi-select: same-parent siblings toggle into the selection;
+        // a different-parent node resets the selection to itself (R-18-01).
+        ctrlClickSelectHeading(node);
+        document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
+        for (const id of selectedIds) {
+          const el = document.querySelector(`.node[data-id="${id}"]`);
+          if (el) el.classList.add('selected');
+        }
+        if (selectedId) {
+          const el = document.querySelector(`.node[data-id="${selectedId}"]`);
+          if (el) el.classList.add('selected');
         }
       } else {
         // Single select — clear multi-selection
@@ -893,28 +1099,18 @@
       e.stopPropagation();
       hideContextMenu();
       if (e.ctrlKey || e.metaKey) {
-        // Multi-select body items
-        if (selectedBodyItemKeys.has(key)) {
-          selectedBodyItemKeys.delete(key);
-          selectedBodyItemsData.delete(key);
-          div.classList.remove('selected');
-          if (selectedBodyItemKey === key) {
-            selectedBodyItemKey = selectedBodyItemKeys.size > 0 ? [...selectedBodyItemKeys][selectedBodyItemKeys.size - 1] : null;
-            selectedBodyItemData = selectedBodyItemKey ? selectedBodyItemsData.get(selectedBodyItemKey) : null;
-          }
-        } else {
-          // Add current primary to multi-select
-          if (selectedBodyItemKey) {
-            selectedBodyItemKeys.add(selectedBodyItemKey);
-            selectedBodyItemsData.set(selectedBodyItemKey, selectedBodyItemData);
-          }
-          selectedBodyItemKeys.add(key);
-          selectedBodyItemsData.set(key, { parentNode, lineIdx: item.lineIdx, indent: item.indent });
-          selectedBodyItemKey = key;
-          selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
-          selectedId = null;
-          selectedIds.clear();
-          div.classList.add('selected');
+        // Multi-select body items: same-parent + same-indent siblings toggle
+        // into the selection; otherwise reset the selection to this item
+        // alone (R-18-02).
+        ctrlClickSelectBodyItem(parentNode, item, key);
+        document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
+        for (const k of selectedBodyItemKeys) {
+          const el = document.querySelector(`.body-node[data-body-key="${k}"]`);
+          if (el) el.classList.add('selected');
+        }
+        if (selectedBodyItemKey) {
+          const el = document.querySelector(`.body-node[data-body-key="${selectedBodyItemKey}"]`);
+          if (el) el.classList.add('selected');
         }
       } else {
         // Single select
@@ -1688,10 +1884,35 @@
       case 'add-body':          { if (contextTarget && (!root || contextTarget.id !== root.id)) addBodyItem(contextTarget, null, 0); break; }
       case 'move-up':           { if (contextTarget) moveNode(contextTarget, -1); break; }
       case 'move-down':         { if (contextTarget) moveNode(contextTarget, 1); break; }
-      case 'node-demote':       { if (contextTarget) demoteNodeToBodyItem(contextTarget); break; }
+      case 'node-demote': {
+        if (!contextTarget) break;
+        if (isHeadingMultiSelectMember(contextTarget.id)) {
+          demoteNodesToBodyItems(getMultiSelectedHeadingNodes());
+        } else {
+          demoteNodeToBodyItem(contextTarget);
+        }
+        break;
+      }
       case 'delete':            { if (contextTarget) deleteNode(contextTarget); break; }
-      case 'body-toggle-type': { if (contextBodyItem) toggleBodyItemTypeAction(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
-      case 'body-promote': { if (contextBodyItem) promoteBodyItemToNode(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
+      case 'body-toggle-type': {
+        if (!contextBodyItem) break;
+        if (isBodyItemMultiSelectMember(contextBodyItem.key)) {
+          const targetType = contextBodyItem.item.type === 'checkbox' ? 'bullet' : 'checkbox';
+          toggleBodyItemsType(getMultiSelectedBodyItemsData(), targetType);
+        } else {
+          toggleBodyItemTypeAction(contextBodyItem.parentNode, contextBodyItem.item.lineIdx);
+        }
+        break;
+      }
+      case 'body-promote': {
+        if (!contextBodyItem) break;
+        if (isBodyItemMultiSelectMember(contextBodyItem.key)) {
+          promoteBodyItemsToNodes(getMultiSelectedBodyItemsData());
+        } else {
+          promoteBodyItemToNode(contextBodyItem.parentNode, contextBodyItem.item.lineIdx);
+        }
+        break;
+      }
       case 'body-add-child': {
         if (!contextBodyItem) return;
         if (contextBodyItem.parentNode.collapsedBodyLines?.delete(contextBodyItem.item.lineIdx)) postBodyItemCollapseState();
@@ -1713,13 +1934,26 @@
   function showHeadingContextMenu(e, node) {
     contextTarget = node;
     contextBodyItem = null;
-    selectedId = node.id;
-    selectedIds.clear();
+
+    // Right-clicking a node that is already part of an active multi-selection
+    // keeps that multi-selection intact (R-18-07); otherwise this becomes a
+    // fresh single selection, same as before.
+    const keepMultiSelection = isHeadingMultiSelectMember(node.id);
+    if (!keepMultiSelection) {
+      selectedId = node.id;
+      selectedIds.clear();
+    }
     selectedBodyItemKeys.clear();
     selectedBodyItemsData.clear();
 
     const parent = root ? findParent(root, node) : null;
     const idx = parent ? parent.children.indexOf(node) : -1;
+
+    const multiNodes = keepMultiSelection ? getMultiSelectedHeadingNodes() : [node];
+    const demoteDisabled = multiNodes.length === 0 || multiNodes.some(n => {
+      const p = root ? findParent(root, n) : null;
+      return !p || n.level === 0 || n.children.length > 0;
+    });
 
     buildContextMenu([
       { action: 'add-child',    label: '子ノードを追加',          disabled: node.level >= 6 },
@@ -1729,7 +1963,7 @@
       { action: 'move-up',      label: '↑ 上へ移動',            disabled: !parent || idx <= 0 },
       { action: 'move-down',    label: '↓ 下へ移動',            disabled: !parent || idx >= parent.children.length - 1 },
       { divider: true },
-      { action: 'node-demote',  label: '本文項目にする',          disabled: !parent || node.level === 0 || node.children.length > 0 },
+      { action: 'node-demote',  label: '本文項目にする',          disabled: demoteDisabled },
       { divider: true },
       { action: 'delete',       label: '削除',                  danger: true },
     ]);
@@ -1739,24 +1973,41 @@
     ctxMenu.classList.remove('hidden');
 
     document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
-    const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
-    if (nodeEl) nodeEl.classList.add('selected');
+    if (keepMultiSelection) {
+      for (const n of multiNodes) {
+        const el = document.querySelector(`.node[data-id="${n.id}"]`);
+        if (el) el.classList.add('selected');
+      }
+    } else {
+      const nodeEl = document.querySelector(`.node[data-id="${node.id}"]`);
+      if (nodeEl) nodeEl.classList.add('selected');
+    }
   }
 
   function showBodyItemContextMenu(e, parentNode, item, key) {
     contextTarget = null;
     contextBodyItem = { parentNode, item, key };
-    selectedBodyItemKey = key;
-    selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+
+    // Right-clicking an item that is already part of an active multi-selection
+    // keeps that multi-selection intact (R-18-07); otherwise this becomes a
+    // fresh single selection, same as before.
+    const keepMultiSelection = isBodyItemMultiSelectMember(key);
+    if (!keepMultiSelection) {
+      selectedBodyItemKey = key;
+      selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
+      selectedBodyItemKeys.clear();
+      selectedBodyItemsData.clear();
+    }
     selectedIds.clear();
-    selectedBodyItemKeys.clear();
-    selectedBodyItemsData.clear();
+
+    const multiItems = keepMultiSelection ? getMultiSelectedBodyItemsData() : [{ parentNode, lineIdx: item.lineIdx, indent: item.indent }];
+    const promoteDisabled = multiItems.length === 0 || multiItems.some(it => it.parentNode.level >= 6 || it.indent !== 0);
 
     buildContextMenu([
       { action: 'body-add-sibling', label: '同階層に追加',              disabled: false },
       { action: 'body-add-child',   label: '子項目を追加',              disabled: false },
       { action: 'body-toggle-type', label: item.type === 'checkbox' ? 'チェックボックスをやめる' : 'チェックボックスにする', disabled: false },
-      { action: 'body-promote',     label: '見出しにする',              disabled: parentNode.level >= 6 || item.indent !== 0 },
+      { action: 'body-promote',     label: '見出しにする',              disabled: promoteDisabled },
       { divider: true },
       { action: 'body-item-delete', label: '本文行を削除',              danger: true },
     ]);
@@ -1766,8 +2017,17 @@
     ctxMenu.classList.remove('hidden');
 
     document.querySelectorAll('.node.selected, .body-node.selected').forEach(el => el.classList.remove('selected'));
-    const nodeEl = document.querySelector(`.body-node[data-body-key="${key}"]`);
-    if (nodeEl) nodeEl.classList.add('selected');
+    if (keepMultiSelection) {
+      const keys = new Set(selectedBodyItemKeys);
+      if (selectedBodyItemKey) keys.add(selectedBodyItemKey);
+      for (const k of keys) {
+        const el = document.querySelector(`.body-node[data-body-key="${k}"]`);
+        if (el) el.classList.add('selected');
+      }
+    } else {
+      const nodeEl = document.querySelector(`.body-node[data-body-key="${key}"]`);
+      if (nodeEl) nodeEl.classList.add('selected');
+    }
   }
 
   function hideContextMenu() {
