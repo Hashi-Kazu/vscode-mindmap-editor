@@ -4,7 +4,7 @@
  * IMPORTANT: This is a TypeScript port of the same functions living in
  * `media/mindmap.js` (getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
  * findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
- * normalizeBodyCheckboxes). The webview script is served as a
+ * toggleBodyItemType / bodyItemTreeToLines). The webview script is served as a
  * raw static asset and is NOT bundled by esbuild, so the logic is intentionally
  * duplicated here for unit testing. If you change the parsing rules in one
  * place, mirror the change in the other or the on-disk model and the rendered
@@ -119,7 +119,9 @@ export function remapCollapsedBodyLinesAfterDelete(
 
 /**
  * Reformat body lines when moving between indent levels.
- * indent=0 → checkbox (- [ ] / - [x]); indent>0 → plain bullet (- text).
+ * The existing marker (checkbox `[ ]`/`[x]`/`[X]`, or plain bullet) is
+ * preserved as-is; only the indentation is shifted. No automatic
+ * checkbox/bullet conversion is performed based on the resulting indent.
  */
 export function reformatBodyLines(
   lines: string[],
@@ -132,81 +134,49 @@ export function reformatBodyLines(
     if (!m) return line;
     const newIndent = Math.max(0, m[1].length + delta);
     const indStr = ' '.repeat(newIndent);
-    const text = m[3];
-    if (newIndent === 0) {
-      return m[2] ? `${indStr}- ${m[2].trimEnd()} ${text}` : `${indStr}- [ ] ${text}`;
-    } else {
-      return `${indStr}- ${text}`;
-    }
+    const marker = m[2] ? `${m[2].trimEnd()} ` : '';
+    return `${indStr}- ${marker}${m[3]}`;
   });
 }
 
 /**
- * Normalize a heading's body so top-level (indent=0) plain bullet items become
- * empty checkboxes (`- text` → `- [ ] text`). This mirrors the editor's data
- * model where top-level body items are checkboxes and nested items (indent>0)
- * are plain bullets, so on open we migrate legacy plain lists to the checkbox
- * form the rest of the code expects.
+ * Explicitly toggle a single body item's type (checkbox <-> bullet) by
+ * lineIdx. This is the only supported way to change a body item's type;
+ * there is no automatic conversion based on indentation elsewhere.
  *
- * Strictly limited to existing top-level list items to honor NF-03:
- *  - existing checkboxes (`- [ ]` / `- [x]` / `- [X]`) are left untouched
- *    (checked state preserved);
- *  - nested bullets (indent>0) stay plain bullets;
- *  - non-list lines (paragraphs, prose, blank lines) are never touched;
- *  - lines inside fenced code blocks (``` / ~~~) are never touched.
+ * Converting to `checkbox` always starts unchecked (`- [ ] `); any existing
+ * checked state is discarded. Converting to `bullet` simply drops the
+ * checkbox marker while preserving indentation.
  *
- * Returns the body string unchanged (same reference semantics via equality) when
- * nothing needs migrating, so callers can skip pointless writes.
+ * Returns the bodyText unchanged if lineIdx is out of range or the target
+ * line is not a list item.
  */
-export function normalizeBodyCheckboxes(bodyText: string): string {
-  if (!bodyText) return bodyText;
-  const lines = bodyText.split('\n');
-  let fenceChar: '`' | '~' | null = null;
-  let changed = false;
-
-  const out = lines.map((line) => {
-    const fence = line.match(/^[ \t]*(`{3,}|~{3,})/);
-    if (fence) {
-      const ch = fence[1][0] as '`' | '~';
-      if (fenceChar === null) fenceChar = ch;
-      else if (fenceChar === ch) fenceChar = null;
-      return line;
-    }
-    if (fenceChar !== null) return line; // inside a code fence — never touch
-
-    // Top-level (indent=0) plain bullet that is NOT already a checkbox.
-    const m = line.match(/^-\s+(.*)$/);
-    if (!m) return line;
-    if (/^\[[ xX]\]\s/.test(m[1])) return line; // already a checkbox
-    changed = true;
-    return `- [ ] ${m[1]}`;
-  });
-
-  return changed ? out.join('\n') : bodyText;
+export function toggleBodyItemType(
+  bodyText: string,
+  lineIdx: number,
+  targetType: BodyItemType
+): string {
+  const lines = (bodyText || '').split('\n');
+  if (lineIdx < 0 || lineIdx >= lines.length) return bodyText;
+  const m = lines[lineIdx].match(/^(\s*)-\s+(?:\[[ xX]\]\s+)?(.*)$/);
+  if (!m) return bodyText;
+  const [, indent, text] = m;
+  lines[lineIdx] = targetType === 'checkbox' ? `${indent}- [ ] ${text}` : `${indent}- ${text}`;
+  return lines.join('\n');
 }
 
 /**
- * Apply normalizeBodyCheckboxes to a node's body and recurse into children,
- * mutating bodies in place. Returns true if any body changed (so the caller
- * can decide whether a write-back is needed).
+ * Serialize a body item tree back into Markdown list lines, 2 spaces per
+ * depth level. Used when promoting/demoting between body items and heading
+ * nodes so nested items can be re-indented starting from a given depth.
  */
-export function normalizeTreeCheckboxes(
-  node: { body: string; children: Array<{ body: string; children: unknown[] }> }
-): boolean {
-  let changed = false;
-  const normalized = normalizeBodyCheckboxes(node.body);
-  if (normalized !== node.body) {
-    node.body = normalized;
-    changed = true;
+export function bodyItemTreeToLines(items: BodyItem[], depth = 0): string[] {
+  const lines: string[] = [];
+  for (const item of items) {
+    const indent = '  '.repeat(depth);
+    const marker = item.type === 'checkbox' ? `[${item.checked ? 'x' : ' '}] ` : '';
+    lines.push(`${indent}- ${marker}${item.text}`);
+    lines.push(...bodyItemTreeToLines(item.children, depth + 1));
   }
-  for (const child of node.children) {
-    if (
-      normalizeTreeCheckboxes(
-        child as { body: string; children: Array<{ body: string; children: unknown[] }> }
-      )
-    ) {
-      changed = true;
-    }
-  }
-  return changed;
+  return lines;
 }

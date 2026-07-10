@@ -9,8 +9,9 @@ import {
   findBodyItemByLineIdx,
   reformatBodyLines,
   remapCollapsedBodyLinesAfterDelete,
-  normalizeBodyCheckboxes,
-  normalizeTreeCheckboxes,
+  toggleBodyItemType,
+  bodyItemTreeToLines,
+  type BodyItem,
 } from '../src/bodyItems';
 
 const webviewSource = readFileSync(join(process.cwd(), 'media', 'mindmap.js'), 'utf8');
@@ -238,13 +239,13 @@ test('findBodyItemByLineIdx returns null for missing lineIdx', () => {
 
 // ─── reformatBodyLines ──────────────────────────────────────────────────────
 
-test('reformatBodyLines indent 0→2 converts checkbox to bullet', () => {
-  assert.deepEqual(reformatBodyLines(['- [ ] x'], 0, 2), ['  - x']);
-  assert.deepEqual(reformatBodyLines(['- [x] done'], 0, 2), ['  - done']);
+test('reformatBodyLines indent 0→2 preserves checkbox type (no auto bullet conversion)', () => {
+  assert.deepEqual(reformatBodyLines(['- [ ] x'], 0, 2), ['  - [ ] x']);
+  assert.deepEqual(reformatBodyLines(['- [x] done'], 0, 2), ['  - [x] done']);
 });
 
-test('reformatBodyLines indent 2→0 converts bullet to checkbox', () => {
-  assert.deepEqual(reformatBodyLines(['  - x'], 2, 0), ['- [ ] x']);
+test('reformatBodyLines indent 2→0 preserves bullet type (no auto checkbox conversion)', () => {
+  assert.deepEqual(reformatBodyLines(['  - x'], 2, 0), ['- x']);
 });
 
 test('reformatBodyLines indent 2→0 preserves an existing checkbox state', () => {
@@ -260,93 +261,17 @@ test('reformatBodyLines keeps non-list lines untouched', () => {
 });
 
 test('reformatBodyLines clamps negative resulting indent to zero', () => {
-  // moving a level-0 line further left stays at 0 (and becomes a checkbox)
-  assert.deepEqual(reformatBodyLines(['- a'], 2, 0), ['- [ ] a']);
-});
-
-// ─── normalizeBodyCheckboxes ────────────────────────────────────────────────
-
-test('normalizeBodyCheckboxes converts top-level plain bullets to empty checkboxes', () => {
-  assert.equal(normalizeBodyCheckboxes('- a\n- b'), '- [ ] a\n- [ ] b');
-});
-
-test('normalizeBodyCheckboxes leaves existing checkboxes untouched (state preserved)', () => {
-  const body = '- [ ] a\n- [x] b\n- [X] c';
-  assert.equal(normalizeBodyCheckboxes(body), body);
-});
-
-test('normalizeBodyCheckboxes does not touch nested (indent>0) bullets', () => {
-  const body = '- a\n  - child\n    - grand';
-  assert.equal(normalizeBodyCheckboxes(body), '- [ ] a\n  - child\n    - grand');
-});
-
-test('normalizeBodyCheckboxes leaves prose and blank lines untouched', () => {
-  const body = 'plain paragraph\n\nanother line';
-  assert.equal(normalizeBodyCheckboxes(body), body);
-});
-
-test('normalizeBodyCheckboxes returns the original string when nothing changes', () => {
-  const body = '- [ ] already';
-  assert.equal(normalizeBodyCheckboxes(body), body);
-});
-
-test('normalizeBodyCheckboxes handles empty/undefined bodies', () => {
-  assert.equal(normalizeBodyCheckboxes(''), '');
-  assert.equal(normalizeBodyCheckboxes(undefined as unknown as string), undefined);
-});
-
-test('normalizeBodyCheckboxes does not touch list-like lines inside fenced code blocks', () => {
-  const body = '- a\n```\n- not a real item\n```\n- b';
-  assert.equal(
-    normalizeBodyCheckboxes(body),
-    '- [ ] a\n```\n- not a real item\n```\n- [ ] b'
-  );
-});
-
-test('normalizeBodyCheckboxes handles a tilde fence', () => {
-  const body = '~~~\n- code\n~~~\n- real';
-  assert.equal(normalizeBodyCheckboxes(body), '~~~\n- code\n~~~\n- [ ] real');
-});
-
-// ─── normalizeTreeCheckboxes ────────────────────────────────────────────────
-
-test('normalizeTreeCheckboxes mutates bodies recursively and reports change', () => {
-  const tree = {
-    body: '- a',
-    children: [
-      { body: '- b', children: [] as unknown[] },
-      { body: '- [x] done', children: [] as unknown[] },
-    ],
-  };
-  const changed = normalizeTreeCheckboxes(tree);
-  assert.equal(changed, true);
-  assert.equal(tree.body, '- [ ] a');
-  assert.equal((tree.children[0] as { body: string }).body, '- [ ] b');
-  assert.equal((tree.children[1] as { body: string }).body, '- [x] done');
-});
-
-test('normalizeTreeCheckboxes returns false when nothing needs migrating', () => {
-  const tree = {
-    body: '- [ ] a',
-    children: [{ body: 'plain', children: [] as unknown[] }],
-  };
-  assert.equal(normalizeTreeCheckboxes(tree), false);
+  // moving a level-0 line further left stays at 0 and keeps its existing (bullet) marker
+  assert.deepEqual(reformatBodyLines(['- a'], 2, 0), ['- a']);
 });
 
 // ─── 新規追加テスト ──────────────────────────────────────────────────────────
 
-// R-13-10: reformatBodyLines は子項目も含めて相対的にインデントが増える
+// R-13-10: reformatBodyLines は子項目も含めて相対的にインデントが増える（種別は維持）
 test('reformatBodyLines indent 0→2 shifts both parent and child lines', () => {
   const lines = ['- [ ] parent', '  - child'];
   const result = reformatBodyLines(lines, 0, 2);
-  assert.deepEqual(result, ['  - parent', '    - child']);
-});
-
-// R-13-12: normalizeBodyCheckboxes は既にすべてチェックボックスの場合は同一参照を返す
-test('normalizeBodyCheckboxes returns the same string reference when all items are already checkboxes', () => {
-  const body = '- [ ] a\n- [x] b';
-  const result = normalizeBodyCheckboxes(body);
-  assert.equal(result === body, true);
+  assert.deepEqual(result, ['  - [ ] parent', '    - child']);
 });
 
 // R-13-01: getBodyItemTree は空文字列/空ボディで空配列を返す
@@ -462,11 +387,11 @@ test('reformatBodyLines indent 2→4 shifts nested lines and keeps them as bulle
   assert.deepEqual(reformatBodyLines(lines, 2, 4), ['    - parent', '      - child']);
 });
 
-// AT-13-08 / R-13-10: ネスト→トップ（4→0）移動で、深い子は indent>0 のまま
-// bullet を維持しつつ、トップに来た行のみチェックボックス化される
-test('reformatBodyLines indent 4→0 checkbox-ifies only the lines that reach indent 0', () => {
+// AT-13-08 / R-13-10: ネスト→トップ（4→0）移動でも各行の既存マーカー（種別）は
+// 一切変換されず、インデントのみがシフトする
+test('reformatBodyLines indent 4→0 shifts indentation without converting checkbox/bullet type', () => {
   const lines = ['    - [x] parent', '      - child'];
-  // delta = -4: parent 4→0 (checkbox, state kept), child 6→2 (bullet)
+  // delta = -4: parent 4→0 (checkbox marker preserved), child 6→2 (bullet preserved)
   assert.deepEqual(reformatBodyLines(lines, 4, 0), ['- [x] parent', '  - child']);
 });
 
@@ -481,59 +406,86 @@ test('reformatBodyLines preserves an uppercase [X] checkbox state when moving to
   assert.deepEqual(reformatBodyLines(['  - [X] done'], 2, 0), ['- [X] done']);
 });
 
-// AT-13-11 / R-13-11: normalizeBodyCheckboxes はインデント付きの本文行
-// （indent>0）を一切変換しない（先頭が "- " で始まる行のみ対象）
-test('normalizeBodyCheckboxes ignores indented bullets even at the top of the body', () => {
-  const body = '  - nested only';
-  assert.equal(normalizeBodyCheckboxes(body), body);
+// ─── toggleBodyItemType ─────────────────────────────────────────────────────
+
+// R-13-16: checkbox → bullet はマーカーを除去し、インデントはそのまま保持する
+test('toggleBodyItemType converts a checkbox item to a bullet, preserving indent', () => {
+  assert.equal(toggleBodyItemType('- [ ] a', 0, 'bullet'), '- a');
+  assert.equal(toggleBodyItemType('  - [x] nested', 0, 'bullet'), '  - nested');
 });
 
-// AT-13-12 / R-13-11: 段落・空行・ネスト bullet のみで変換対象が無い本文は
-// 同一参照を返し書き込みを発生させない
-test('normalizeBodyCheckboxes returns the same reference when only prose/nested lines exist', () => {
-  const body = 'paragraph\n\n  - nested\ntext';
-  assert.equal(normalizeBodyCheckboxes(body) === body, true);
+// R-13-16: bullet → checkbox は常に未チェック状態で `- [ ] ` を付与する
+test('toggleBodyItemType converts a bullet item to a checkbox, always starting unchecked', () => {
+  assert.equal(toggleBodyItemType('- a', 0, 'checkbox'), '- [ ] a');
+  assert.equal(toggleBodyItemType('  - nested', 0, 'checkbox'), '  - [ ] nested');
 });
 
-// AT-13-11: 閉じられていないコードフェンス内のリスト行は変換されない
-// （フェンスが閉じない限りドキュメント末尾まで保護される）
-test('normalizeBodyCheckboxes leaves list lines inside an unclosed fence untouched', () => {
-  const body = '- real\n```\n- still code\n- more code';
-  assert.equal(
-    normalizeBodyCheckboxes(body),
-    '- [ ] real\n```\n- still code\n- more code'
-  );
+// R-13-16: 既にチェック済みの項目を checkbox へ再変換すると未チェックにリセットされる
+test('toggleBodyItemType resets an already-checked item to unchecked when re-targeted to checkbox', () => {
+  assert.equal(toggleBodyItemType('- [x] done', 0, 'checkbox'), '- [ ] done');
+  assert.equal(toggleBodyItemType('- [X] done', 0, 'checkbox'), '- [ ] done');
 });
 
-// AT-13-11: 同種フェンス（```）の開閉後、フェンス外の行は再び変換対象になる
-test('normalizeBodyCheckboxes resumes conversion after a closed fence', () => {
-  const body = '```\n- code\n```\n- after';
-  assert.equal(normalizeBodyCheckboxes(body), '```\n- code\n```\n- [ ] after');
+test('toggleBodyItemType returns the original bodyText for an out-of-range lineIdx', () => {
+  const body = '- a\n- b';
+  assert.equal(toggleBodyItemType(body, 5, 'checkbox'), body);
+  assert.equal(toggleBodyItemType(body, -1, 'bullet'), body);
 });
 
-// AT-13-12 / R-13-11: normalizeTreeCheckboxes は深いネスト（孫）まで再帰し、
-// 変換が一切無ければ false を返す
-test('normalizeTreeCheckboxes recurses into grandchildren and reports no change when all are checkboxes', () => {
-  const tree = {
-    body: '- [ ] a',
-    children: [
-      {
-        body: '- [x] b',
-        children: [{ body: '- [ ] c', children: [] as unknown[] }],
-      },
-    ],
-  };
-  assert.equal(normalizeTreeCheckboxes(tree), false);
+test('toggleBodyItemType returns the original bodyText when the targeted line is not a list item', () => {
+  const body = '- a\nplain paragraph\n- b';
+  assert.equal(toggleBodyItemType(body, 1, 'checkbox'), body);
 });
 
-// AT-13-11: normalizeTreeCheckboxes は孫ノードのみ変換が必要な場合でも
-// true を返し、その孫だけを変換する
-test('normalizeTreeCheckboxes reports change when only a deeply nested body needs migrating', () => {
-  const grand = { body: '- needs', children: [] as unknown[] };
-  const tree = {
-    body: '- [ ] a',
-    children: [{ body: '- [x] b', children: [grand] }],
-  };
-  assert.equal(normalizeTreeCheckboxes(tree), true);
-  assert.equal(grand.body, '- [ ] needs');
+// ─── bodyItemTreeToLines ────────────────────────────────────────────────────
+
+test('bodyItemTreeToLines serializes a flat list (no nesting) at depth=0', () => {
+  const items: BodyItem[] = [
+    { lineIdx: 0, type: 'bullet', checked: false, text: 'a', indent: 0, children: [] },
+    { lineIdx: 1, type: 'checkbox', checked: true, text: 'b', indent: 0, children: [] },
+  ];
+  assert.deepEqual(bodyItemTreeToLines(items), ['- a', '- [x] b']);
+});
+
+test('bodyItemTreeToLines serializes a nested tree with mixed checkbox/bullet items using 2-space indents', () => {
+  const items: BodyItem[] = [
+    {
+      lineIdx: 0,
+      type: 'checkbox',
+      checked: false,
+      text: 'parent',
+      indent: 0,
+      children: [
+        { lineIdx: 1, type: 'bullet', checked: false, text: 'child', indent: 2, children: [] },
+        {
+          lineIdx: 2,
+          type: 'checkbox',
+          checked: true,
+          text: 'grandparent-sibling',
+          indent: 2,
+          children: [
+            { lineIdx: 3, type: 'bullet', checked: false, text: 'grandchild', indent: 4, children: [] },
+          ],
+        },
+      ],
+    },
+  ];
+  assert.deepEqual(bodyItemTreeToLines(items), [
+    '- [ ] parent',
+    '  - child',
+    '  - [x] grandparent-sibling',
+    '    - grandchild',
+  ]);
+});
+
+test('bodyItemTreeToLines returns an empty array for an empty tree', () => {
+  assert.deepEqual(bodyItemTreeToLines([]), []);
+});
+
+test('bodyItemTreeToLines offsets the leading indent when depth is 1 or more', () => {
+  const items: BodyItem[] = [
+    { lineIdx: 0, type: 'bullet', checked: false, text: 'a', indent: 0, children: [] },
+  ];
+  assert.deepEqual(bodyItemTreeToLines(items, 1), ['  - a']);
+  assert.deepEqual(bodyItemTreeToLines(items, 2), ['    - a']);
 });

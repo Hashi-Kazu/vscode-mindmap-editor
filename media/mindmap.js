@@ -80,6 +80,29 @@
     return isBody ? BODY_H : NODE_H;
   }
 
+  // ─── Inline Markdown rendering (R-21) ──────────────────────────────────────
+  // Escapes HTML special characters, then decorates **bold**/*italic*/
+  // ***bold+italic*** (and the underscore equivalents) as <strong>/<em> for
+  // node/body-item label display only. Inline edit inputs always show the
+  // raw Markdown text unchanged (see beginEdit / beginBodyItemEdit).
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function renderInlineMarkdown(text) {
+    let html = escapeHtml(text || '');
+    html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+    return html;
+  }
+
   let configFontSize = 14;
   let configEdgeWidth = 1.5;
 
@@ -133,7 +156,7 @@
   // ─── Body Item Helpers ────────────────────────────────────────────────────
   // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
   // findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
-  // normalizeBodyCheckboxes are mirrored in src/bodyItems.ts,
+  // toggleBodyItemType / bodyItemTreeToLines are mirrored in src/bodyItems.ts,
   // while horizontal navigation and body-selection rebinding helpers are mirrored in src/navigation.ts
   // (unit-tested there since this file isn't bundled by esbuild). Keep both in
   // sync — divergence corrupts lineIdx-based body operations.
@@ -712,7 +735,7 @@
 
     const label = document.createElement('span');
     label.className = 'label';
-    label.textContent = node.text;
+    label.innerHTML = renderInlineMarkdown(node.text);
     label.style.fontSize = (configFontSize - 1) + 'px';
     div.appendChild(label);
 
@@ -846,8 +869,8 @@
       div.appendChild(btn);
     }
 
-    // Checkbox (top-level only) or bullet
-    if (!isNested && item.type === 'checkbox') {
+    // Checkbox (any depth) or bullet
+    if (item.type === 'checkbox') {
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'body-node-checkbox';
@@ -862,7 +885,7 @@
 
     const label = document.createElement('span');
     label.className = 'body-node-label';
-    label.textContent = item.text;
+    label.innerHTML = renderInlineMarkdown(item.text);
     label.style.fontSize = (configFontSize - 2) + 'px';
     div.appendChild(label);
 
@@ -1483,12 +1506,7 @@
       lines[lineIdx] = `${chk[1]}- [${chk[2]}] ${newText}`;
     } else {
       const indStr = ' '.repeat(indent !== undefined ? indent : 0);
-      // top-level (indent=0): auto checkbox; nested: plain bullet
-      if (!indent || indent === 0) {
-        lines[lineIdx] = `${indStr}- [ ] ${newText}`;
-      } else {
-        lines[lineIdx] = `${indStr}- ${newText}`;
-      }
+      lines[lineIdx] = `${indStr}- ${newText}`;
     }
     parentNode.body = lines.join('\n');
     postStructuralEdit();
@@ -1504,16 +1522,28 @@
     render();
   }
 
+  /** Explicitly toggle a body item between checkbox and plain bullet type. */
+  function toggleBodyItemTypeAction(parentNode, lineIdx) {
+    const tree = getBodyItemTree(parentNode.body);
+    const item = findBodyItemByLineIdx(tree, lineIdx);
+    if (!item) return;
+    const targetType = item.type === 'checkbox' ? 'bullet' : 'checkbox';
+    parentNode.body = toggleBodyItemType(parentNode.body, lineIdx, targetType);
+    pushUndo();
+    postStructuralEdit();
+    render();
+  }
+
   /**
    * Add a body item after afterLineIdx with the given indent.
-   * indent=0 → top-level checkbox item; indent>0 → nested bullet item.
+   * New items always start as a plain bullet regardless of indent; the
+   * user explicitly toggles to a checkbox via the context menu (R-13-16).
    */
   function addBodyItem(parentNode, afterLineIdx, indent) {
     indent = indent || 0;
     const lines = (parentNode.body || '').split('\n');
     const indStr = ' '.repeat(indent);
-    // top-level gets checkbox template, nested gets plain bullet
-    const newLine = indent === 0 ? `${indStr}- [ ] ` : `${indStr}- `;
+    const newLine = `${indStr}- `;
 
     let insertAt;
     if (afterLineIdx !== undefined && afterLineIdx !== null) {
@@ -1568,6 +1598,37 @@
     parentNode.body = lines.join('\n');
     selectedBodyItemKey = null;
     selectedBodyItemData = null;
+    postStructuralEdit();
+    render();
+  }
+
+  /**
+   * Promote a top-level (indent=0) body item to a heading node (R-14-01〜03).
+   * Only indent=0 items can be promoted, and only while the parent has room
+   * for another level (H6 limit). The new node is inserted at the front of
+   * parentNode.children so it lands immediately after the (now-shrunk) body
+   * and before any existing child headings — matching how
+   * src/markdownSerializer.ts always emits a node's body before its children.
+   * Checked state is discarded when converting to a heading (R-14-03).
+   */
+  function promoteBodyItemToNode(parentNode, lineIdx) {
+    const tree = getBodyItemTree(parentNode.body);
+    const item = findBodyItemByLineIdx(tree, lineIdx);
+    if (!item || item.indent !== 0 || parentNode.level >= 6) return;
+    const lastLine = bodyItemLastLineIdx(item);
+    const lineCount = lastLine - lineIdx + 1;
+    const lines = (parentNode.body || '').split('\n');
+    lines.splice(lineIdx, lineCount);
+    parentNode.collapsedBodyLines = remapCollapsedBodyLinesAfterDelete(parentNode.collapsedBodyLines, lineIdx, lineCount);
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+    parentNode.body = lines.join('\n');
+
+    const newNode = makeNode(item.text, parentNode.level + 1);
+    newNode.body = bodyItemTreeToLines(item.children, 0).join('\n');
+    parentNode.children.unshift(newNode);
+    parentNode.collapsed = false;
+
+    pushUndo();
     postStructuralEdit();
     render();
   }
@@ -1627,7 +1688,10 @@
       case 'add-body':          { if (contextTarget && (!root || contextTarget.id !== root.id)) addBodyItem(contextTarget, null, 0); break; }
       case 'move-up':           { if (contextTarget) moveNode(contextTarget, -1); break; }
       case 'move-down':         { if (contextTarget) moveNode(contextTarget, 1); break; }
+      case 'node-demote':       { if (contextTarget) demoteNodeToBodyItem(contextTarget); break; }
       case 'delete':            { if (contextTarget) deleteNode(contextTarget); break; }
+      case 'body-toggle-type': { if (contextBodyItem) toggleBodyItemTypeAction(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
+      case 'body-promote': { if (contextBodyItem) promoteBodyItemToNode(contextBodyItem.parentNode, contextBodyItem.item.lineIdx); break; }
       case 'body-add-child': {
         if (!contextBodyItem) return;
         if (contextBodyItem.parentNode.collapsedBodyLines?.delete(contextBodyItem.item.lineIdx)) postBodyItemCollapseState();
@@ -1665,6 +1729,8 @@
       { action: 'move-up',      label: '↑ 上へ移動',            disabled: !parent || idx <= 0 },
       { action: 'move-down',    label: '↓ 下へ移動',            disabled: !parent || idx >= parent.children.length - 1 },
       { divider: true },
+      { action: 'node-demote',  label: '本文項目にする',          disabled: !parent || node.level === 0 || node.children.length > 0 },
+      { divider: true },
       { action: 'delete',       label: '削除',                  danger: true },
     ]);
 
@@ -1689,6 +1755,8 @@
     buildContextMenu([
       { action: 'body-add-sibling', label: '同階層に追加',              disabled: false },
       { action: 'body-add-child',   label: '子項目を追加',              disabled: false },
+      { action: 'body-toggle-type', label: item.type === 'checkbox' ? 'チェックボックスをやめる' : 'チェックボックスにする', disabled: false },
+      { action: 'body-promote',     label: '見出しにする',              disabled: parentNode.level >= 6 || item.indent !== 0 },
       { divider: true },
       { action: 'body-item-delete', label: '本文行を削除',              danger: true },
     ]);
@@ -1717,6 +1785,40 @@
     pushUndo();
     parent.children = parent.children.filter(c => c.id !== node.id);
     if (selectedId === node.id) selectedId = null;
+    postStructuralEdit();
+    render();
+  }
+
+  /**
+   * Demote a heading node with no children into a body item of its parent
+   * (R-14-04〜05). Only leaf headings (no child headings) can be demoted;
+   * root and nodes without a parent are rejected. The heading text becomes a
+   * plain bullet (never a checkbox) appended to the end of the parent's
+   * body, and its own (former) body follows as nested items at indent+2 —
+   * this matches how src/markdownSerializer.ts always emits a node's body
+   * before its child headings, so appending at the end preserves relative
+   * order against any existing body items and following child headings.
+   */
+  function demoteNodeToBodyItem(node) {
+    if (!root || node.id === root.id || node.level === 0) return;
+    const parent = findParent(root, node);
+    if (!parent || node.children.length > 0) return;
+
+    const headingLine = `- ${node.text}`;
+    const bodyLines = node.body.trim()
+      ? reformatBodyLines((node.body || '').split('\n'), 0, 2)
+      : [];
+    const newLines = [headingLine, ...bodyLines];
+
+    const lines = (parent.body || '').split('\n');
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+    const isEmpty = lines.length === 1 && lines[0] === '';
+    parent.body = isEmpty ? newLines.join('\n') : [...lines, ...newLines].join('\n');
+
+    parent.children = parent.children.filter(c => c.id !== node.id);
+    if (selectedId === node.id) selectedId = null;
+
+    pushUndo();
     postStructuralEdit();
     render();
   }
@@ -2213,7 +2315,9 @@
   }
 
   /** Reformat body lines when moving between indent levels.
-   *  indent=0 → checkbox (- [ ] / - [x] ), indent>0 → plain bullet (- text) */
+   *  The existing marker (checkbox/bullet) is preserved as-is; only the
+   *  indentation is shifted. No automatic checkbox/bullet conversion is
+   *  performed based on the resulting indent. */
   function reformatBodyLines(lines, srcIndent, destIndent) {
     const delta = destIndent - srcIndent;
     return lines.map(line => {
@@ -2221,43 +2325,43 @@
       if (!m) return line;
       const newIndent = Math.max(0, m[1].length + delta);
       const indStr = ' '.repeat(newIndent);
-      const text = m[3];
-      if (newIndent === 0) {
-        return m[2] ? `${indStr}- ${m[2].trimEnd()} ${text}` : `${indStr}- [ ] ${text}`;
-      } else {
-        return `${indStr}- ${text}`;
-      }
+      const marker = m[2] ? `${m[2].trimEnd()} ` : '';
+      return `${indStr}- ${marker}${m[3]}`;
     });
   }
 
   /**
-   * Migrate a heading body so top-level (indent=0) plain bullets become empty
-   * checkboxes (`- text` → `- [ ] text`). Mirrors src/bodyItems.ts. The
-   * extension performs this on open and writes it back, so the webview normally
-   * receives already-migrated bodies; this is kept in sync for parity. Existing
-   * checkboxes, nested bullets, prose, and fenced code blocks are untouched.
+   * Explicitly toggle a single body item's type (checkbox <-> bullet) by
+   * lineIdx. This is the only supported way to change a body item's type;
+   * there is no automatic conversion based on indentation elsewhere.
+   * Converting to 'checkbox' always starts unchecked; converting to
+   * 'bullet' simply drops the checkbox marker. Mirrors src/bodyItems.ts.
    */
-  function normalizeBodyCheckboxes(bodyText) {
-    if (!bodyText) return bodyText;
-    const lines = bodyText.split('\n');
-    let fenceChar = null;
-    let changed = false;
-    const out = lines.map(line => {
-      const fence = line.match(/^[ \t]*(`{3,}|~{3,})/);
-      if (fence) {
-        const ch = fence[1][0];
-        if (fenceChar === null) fenceChar = ch;
-        else if (fenceChar === ch) fenceChar = null;
-        return line;
-      }
-      if (fenceChar !== null) return line;
-      const m = line.match(/^-\s+(.*)$/);
-      if (!m) return line;
-      if (/^\[[ xX]\]\s/.test(m[1])) return line;
-      changed = true;
-      return `- [ ] ${m[1]}`;
-    });
-    return changed ? out.join('\n') : bodyText;
+  function toggleBodyItemType(bodyText, lineIdx, targetType) {
+    const lines = (bodyText || '').split('\n');
+    if (lineIdx < 0 || lineIdx >= lines.length) return bodyText;
+    const m = lines[lineIdx].match(/^(\s*)-\s+(?:\[[ xX]\]\s+)?(.*)$/);
+    if (!m) return bodyText;
+    const [, indent, text] = m;
+    lines[lineIdx] = targetType === 'checkbox' ? `${indent}- [ ] ${text}` : `${indent}- ${text}`;
+    return lines.join('\n');
+  }
+
+  /**
+   * Serialize a body item tree back into Markdown list lines, 2 spaces per
+   * depth level. Used when promoting/demoting between body items and
+   * heading nodes. Mirrors src/bodyItems.ts.
+   */
+  function bodyItemTreeToLines(items, depth) {
+    depth = depth || 0;
+    const lines = [];
+    for (const item of items) {
+      const indent = '  '.repeat(depth);
+      const marker = item.type === 'checkbox' ? `[${item.checked ? 'x' : ' '}] ` : '';
+      lines.push(`${indent}- ${marker}${item.text}`);
+      lines.push(...bodyItemTreeToLines(item.children, depth + 1));
+    }
+    return lines;
   }
 
   // ─── Copy / Paste ─────────────────────────────────────────────────────────
