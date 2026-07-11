@@ -2314,6 +2314,9 @@
     // drop on the root node has no resolvable parent; ignore it so nodes are
     // never removed without being re-inserted.
     if (position !== 'inside' && position !== 'root-left' && position !== 'root-right' && !findParent(root, targetNode)) return;
+    // Nothing to move if none of the dragged nodes actually live in the tree.
+    // Bail before pushUndo() so an ignored drop leaves no phantom undo step.
+    if (!nodes.some(n => findParent(root, n))) return;
     pushUndo();
     // Remove all dragged nodes from their parents first
     const removedNodes = [];
@@ -2323,7 +2326,6 @@
       srcParent.children = srcParent.children.filter(c => c.id !== draggedNode.id);
       removedNodes.push(draggedNode);
     }
-    if (removedNodes.length === 0) return;
 
     if (position === 'inside') {
       for (const n of removedNodes) {
@@ -2343,8 +2345,9 @@
       }
       root.collapsed = false;
     } else {
+      // targetParent is guaranteed to exist by the R-02-10 guard above, so the
+      // removed nodes are always re-inserted here — never dropped on the floor.
       const targetParent = findParent(root, targetNode);
-      if (!targetParent) return;
       const baseIdx = targetParent.children.indexOf(targetNode);
       const insertIdx = position === 'before' ? baseIdx : baseIdx + 1;
       for (let i = 0; i < removedNodes.length; i++) {
@@ -2361,6 +2364,15 @@
     if (!root) return;
     const sourceParent = findParent(root, draggedNode);
     if (!sourceParent) return;
+    // R-02-03 / R-02-10: resolve the insertion target BEFORE mutating the tree.
+    // A before/after drop with no resolvable parent is a clean no-op (the node
+    // stays put) instead of being removed and then re-appended out of order —
+    // which previously changed the sibling order without the user asking and
+    // could skip the persist path. Any drop that gets past this guard is
+    // guaranteed to reach postStructuralEdit().
+    const isReorder = position !== 'inside' && position !== 'root-left' && position !== 'root-right';
+    const targetParent = isReorder ? findParent(root, targetNode) : null;
+    if (isReorder && !targetParent) return;
     pushUndo();
     sourceParent.children = sourceParent.children.filter(c => c.id !== draggedNode.id);
     if (position === 'inside') {
@@ -2379,8 +2391,6 @@
       // Notify extension to persist the side change
       vscode.postMessage({ type: 'setSide', id: draggedNode.id, side: newSide });
     } else {
-      const targetParent = findParent(root, targetNode);
-      if (!targetParent) { sourceParent.children.push(draggedNode); postStructuralEdit(); return; }
       draggedNode.level = targetNode.level;
       updateChildLevels(draggedNode);
       const idx = targetParent.children.indexOf(targetNode);

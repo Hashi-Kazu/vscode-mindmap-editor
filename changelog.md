@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.20.1] - 2026-07-11
+
+### Fixed
+- ドラッグ＆ドロップでノードを移動・並び替えしても `.md` に反映されないケースを修正 — R-02-03 / R-02-10（#33）。`media/mindmap.js` の `performDrop` / `performMultiDrop` が、ツリーを変更した後で早期リターンして `postStructuralEdit()`（構造変更の即時書き込み通知）をスキップし得る分岐を解消した。
+  - `performMultiDrop`: ドロップ先の親が解決できない before/after を除去後に判定していた早期リターン（ノードが除去されたまま再挿入されず、かつ書き込みも行われない経路）を廃止。移動対象がツリーに存在しない場合は `pushUndo()` 前に抜けて、無効なドロップが幻の Undo ステップを残さないようにした。
+  - `performDrop`: 挿入先をツリー変更前に解決し、解決できない並び替えは純粋なノーオペ（ノードは元の位置に留まる）とした。従来の「除去後に末尾へ再追加して並びを変えつつ書き込む」経路を除去し、変更が生じるドロップは必ず `postStructuralEdit()` に到達するようにした。
+
 ## [2.5.0] - 2026-06-17
 
 ### Added
