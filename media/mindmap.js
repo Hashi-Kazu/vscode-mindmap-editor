@@ -103,6 +103,40 @@
     return html;
   }
 
+  function parseEmphasis(text) {
+    let inner = String(text || '').trim();
+    let bold = false;
+    let italic = false;
+    let changed = true;
+    while (inner && changed) {
+      changed = false;
+      for (const [marker, hasBold, hasItalic] of [
+        ['***', true, true], ['___', true, true],
+        ['**', true, false], ['__', true, false],
+        ['*', false, true], ['_', false, true],
+      ]) {
+        if (inner.length > marker.length * 2 && inner.startsWith(marker) && inner.endsWith(marker)) {
+          inner = inner.slice(marker.length, -marker.length).trim();
+          bold = bold || hasBold;
+          italic = italic || hasItalic;
+          changed = true;
+          break;
+        }
+      }
+    }
+    return { bold, italic, inner };
+  }
+
+  function toggleEmphasis(text, kind, forceState) {
+    if (!String(text || '').trim()) return text;
+    const emphasis = parseEmphasis(text);
+    emphasis[kind] = forceState === undefined ? !emphasis[kind] : forceState;
+    if (emphasis.bold && emphasis.italic) return `***${emphasis.inner}***`;
+    if (emphasis.bold) return `**${emphasis.inner}**`;
+    if (emphasis.italic) return `*${emphasis.inner}*`;
+    return emphasis.inner;
+  }
+
   let configFontSize = 14;
   let configEdgeWidth = 1.5;
 
@@ -267,6 +301,39 @@
     for (const [k, d] of selectedBodyItemsData) map.set(k, d);
     if (selectedBodyItemKey && selectedBodyItemData) map.set(selectedBodyItemKey, selectedBodyItemData);
     return [...map.values()];
+  }
+
+  function getSelectionEmphasisTexts() {
+    const headings = getMultiSelectedHeadingNodes();
+    const bodyItems = getMultiSelectedBodyItemsData().map(data => {
+      const item = findBodyItemByLineIdx(getBodyItemTree(data.parentNode.body), data.lineIdx);
+      return { ...data, item };
+    }).filter(data => data.item);
+    return { headings, bodyItems };
+  }
+
+  function applyEmphasisToSelection(kind) {
+    const { headings, bodyItems } = getSelectionEmphasisTexts();
+    const texts = [...headings.map(node => node.text), ...bodyItems.map(data => data.item.text)];
+    if (!texts.length) return;
+    const forceState = !texts.every(text => parseEmphasis(text)[kind]);
+    pushUndo();
+    for (const node of headings) node.text = toggleEmphasis(node.text, kind, forceState);
+    for (const data of bodyItems) {
+      setBodyItemText(data.parentNode, data.lineIdx, toggleEmphasis(data.item.text, kind, forceState), data.item.indent);
+    }
+    postStructuralEdit();
+    render();
+  }
+
+  function updateEmphasisButtons() {
+    const boldButton = document.getElementById('btn-bold');
+    const italicButton = document.getElementById('btn-italic');
+    if (!boldButton || !italicButton) return;
+    const { headings, bodyItems } = getSelectionEmphasisTexts();
+    const texts = [...headings.map(node => node.text), ...bodyItems.map(data => data.item.text)];
+    boldButton.classList.toggle('active', texts.length > 0 && texts.every(text => parseEmphasis(text).bold));
+    italicButton.classList.toggle('active', texts.length > 0 && texts.every(text => parseEmphasis(text).italic));
   }
 
   /**
@@ -825,6 +892,7 @@
     }
     applyTransform();
     updateCheckboxProgress();
+    updateEmphasisButtons();
   }
 
   function drawBodyItemConnections(items, svg) {
@@ -1330,6 +1398,8 @@
   document.getElementById('btn-zoom-in').addEventListener('click', () => zoomBy(1.25));
   document.getElementById('btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
   document.getElementById('btn-fit').addEventListener('click', fitView);
+  document.getElementById('btn-bold').addEventListener('click', () => applyEmphasisToSelection('bold'));
+  document.getElementById('btn-italic').addEventListener('click', () => applyEmphasisToSelection('italic'));
   document.getElementById('btn-expand-all').addEventListener('click', () => {
     if (!root) return;
     pushUndo();
@@ -1391,6 +1461,9 @@
     // without firing blur, leaving editingId/bodyEditing locked forever
     // (BUG-04). The input's native undo handles Ctrl+Z instead (R-12-09).
     if (editingId || bodyEditing) return;
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); applyEmphasisToSelection('bold'); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') { e.preventDefault(); applyEmphasisToSelection('italic'); return; }
 
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); performUndo(); return; }
 
@@ -1693,7 +1766,7 @@
     });
   }
 
-  function updateBodyLine(parentNode, lineIdx, newText, indent) {
+  function setBodyItemText(parentNode, lineIdx, newText, indent) {
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
     const existing = lines[lineIdx];
@@ -1705,6 +1778,10 @@
       lines[lineIdx] = `${indStr}- ${newText}`;
     }
     parentNode.body = lines.join('\n');
+  }
+
+  function updateBodyLine(parentNode, lineIdx, newText, indent) {
+    setBodyItemText(parentNode, lineIdx, newText, indent);
     postStructuralEdit();
   }
 

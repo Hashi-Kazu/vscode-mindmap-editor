@@ -617,6 +617,9 @@ export class MindMapPanel {
     <button id="btn-zoom-out" title="縮小 (Ctrl+-)">－</button>
     <button id="btn-fit" title="画面にフィット (F)">⊡</button>
     <span class="sep"></span>
+    <button id="btn-bold" title="太字 (Ctrl+B)"><strong>B</strong></button>
+    <button id="btn-italic" title="斜体 (Ctrl+I)"><em>I</em></button>
+    <span class="sep"></span>
     <button id="btn-expand-all" title="すべてのノードを展開">▶ 全展開</button>
     <button id="btn-collapse-all" title="すべてのノードを折りたたむ">▼ 全折畳</button>
     <span class="sep"></span>
@@ -643,6 +646,8 @@ export class MindMapPanel {
       <tr><td>Ctrl+X</td><td>カット（複数選択対応）</td></tr>
       <tr><td>Ctrl+V</td><td>子階層にペースト</td></tr>
       <tr><td>Ctrl+S</td><td>保存</td></tr>
+      <tr><td>Ctrl+B</td><td>太字</td></tr>
+      <tr><td>Ctrl+I</td><td>斜体</td></tr>
       <tr><td>F</td><td>画面にフィット</td></tr>
     </table>
     <div class="help-section">本文項目</div>

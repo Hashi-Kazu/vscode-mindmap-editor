@@ -79,6 +79,19 @@ html, body {
   border-color: var(--border);
 }
 
+#btn-bold,
+#btn-italic {
+  min-width: 28px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+#btn-bold.active,
+#btn-italic.active {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  border-color: transparent;
+}
 .sep {
   display: inline-block;
   width: 1px;
