@@ -36,15 +36,16 @@
 
 | 方向 | タイプ | ペイロード | 用途 |
 |------|--------|-----------|------|
-| 拡張機能 → Webview | `update` | `{ root: MindMapNode }` | ツリー更新 |
+| 拡張機能 → Webview | `update` | `{ root: MindMapNode, bodyItemCollapsePaths: string[], generation: number, docUri: string }` | ツリー更新。`generation`/`docUri` は `structuralEdit` の照合に使う同期世代情報 |
 | 拡張機能 → Webview | `saved` | `{}` | ファイル保存完了通知。Webviewはインジケーターを表示する |
+| 拡張機能 → Webview | `setFontSize` | `{ fontSize: number }` | フォントサイズ設定の反映（初期化時・設定変更時） |
+| 拡張機能 → Webview | `setEdgeWidth` | `{ edgeWidth: number }` | エッジ線幅設定の反映（初期化時・設定変更時） |
 | Webview → 拡張機能 | `ready` | `{}` | Webview初期化完了通知。拡張機能はこれを受信してから初回ツリーを送信する |
-| Webview → 拡張機能 | `structuralEdit` | `{ root: MindMapNode }` | 構造変更（移動・追加・削除・Undo復元） |
-| Webview → 拡張機能 | `renameNode` | `{ id, newText }` | ノード名変更 |
-| Webview → 拡張機能 | `saveCollapseState` | `{ collapsedPaths: string[] }` | 折りたたみ状態保存 |
 | Webview → 拡張機能 | `save` | `{}` | ファイル保存要求（Ctrl+S / Cmd+S） |
-| Webview → 拡張機能 | `editBody` | `{ id, body }` | ノードの本文のみを更新（チェックボックストグル・本文編集確定） |
+| Webview → 拡張機能 | `structuralEdit` | `{ root: MindMapNode, baseGeneration?: number, docUri?: string }` | 構造変更（移動・追加・削除・Undo復元）。`baseGeneration`/`docUri` はコンフリクト・誤ドキュメント検知に使用 |
+| Webview → 拡張機能 | `saveCollapseState` | `{ collapsedPaths: string[] }` | 折りたたみ状態保存 |
 | Webview → 拡張機能 | `saveBodyItemCollapseState` | `{ paths: string[] }` | 本文項目の折りたたみ状態をフロントマター（`body-item-collapse:`）へ保存 |
+| Webview → 拡張機能 | `setSide` | `{ id: string, side: 'left' \| 'right' }` | ルート直下ノードの左右配置切替 |
 
 ### 6.3 ファイル構成
 
@@ -107,6 +108,7 @@ interface MindMapNode {
   children: MindMapNode[];
   collapsed: boolean;
   body: string;       // この見出し直後の本文（段落・コードブロック等）
+  side?: 'left' | 'right';  // レイアウト配置（ルート直下のH1子ノードのみ有効）
 }
 ```
 
@@ -146,11 +148,13 @@ body-item-collapse:
 | 定数 | 値 | 用途 |
 |------|------|------|
 | `NODE_MIN_W` | 100 | 見出しノード最小幅（px） |
-| `NODE_MAX_W` | 400 | 見出しノード最大幅（px） |
-| `NODE_H` | 46 | 見出しノード高さ（px） |
+| `NODE_MAX_W` | 500 | 見出しノード最大幅（px） |
+| `NODE_H` | 46 | 見出しノード高さ（px）・2行折り返し時 |
+| `NODE_H_1LINE` | 32 | 見出しノード高さ（px）・1行に収まる場合 |
 | `BODY_MIN_W` | 80 | 本文ノード最小幅（px） |
-| `BODY_MAX_W` | 360 | 本文ノード最大幅（px） |
+| `BODY_MAX_W` | 450 | 本文ノード最大幅（px） |
 | `BODY_H` | 42 | 本文ノード高さ（px）・2行対応 |
+| `BODY_H_1LINE` | 30 | 本文ノード高さ（px）・1行に収まる場合 |
 | `TOGGLE_W` | 19 | 折りたたみトグルボタン幅（px） |
 | `H_GAP` | 20 | 親右端→子左端の水平間隔（px） |
 | `BODY_ITEM_GAP` | 12 | 本文項目右端→ネスト子の水平間隔（px） |
