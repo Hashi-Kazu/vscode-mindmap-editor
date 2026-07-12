@@ -435,8 +435,9 @@
 
   // ─── Body Item Helpers ────────────────────────────────────────────────────
   // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
-  // findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
-  // toggleBodyItemType / bodyItemTreeToLines are mirrored in src/bodyItems.ts,
+  // findBodyItemByLineIdx / findBodyItemSiblings / reformatBodyLines /
+  // remapCollapsedBodyLinesAfterDelete / remapCollapsedBodyLinesAfterMove /
+  // moveBodyItemLines / toggleBodyItemType / bodyItemTreeToLines are mirrored in src/bodyItems.ts,
   // while horizontal navigation and body-selection rebinding helpers are mirrored in src/navigation.ts
   // (unit-tested there since this file isn't bundled by esbuild). Keep both in
   // sync — divergence corrupts lineIdx-based body operations.
@@ -473,6 +474,72 @@
       else if (lineIdx >= endLineIdx) remapped.add(lineIdx - lineCount);
     }
     return remapped;
+  }
+
+  /**
+   * Locate a body item's sibling array (its immediate parent's children, or the
+   * top-level roots) and its index within that array. Returns null when the
+   * lineIdx is not found. Mirrors src/bodyItems.ts.
+   */
+  function findBodyItemSiblings(tree, lineIdx) {
+    const idx = tree.findIndex(it => it.lineIdx === lineIdx);
+    if (idx !== -1) return { siblings: tree, index: idx };
+    for (const item of tree) {
+      const found = findBodyItemSiblings(item.children, lineIdx);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /**
+   * Remap a collapsed-line set after two adjacent sibling blocks are swapped.
+   * a-block lines (aStart..aEnd) shift down by bLen; b-block lines
+   * (bStart..bEnd) shift up by aLen; other lines are unchanged. Mirrors
+   * src/bodyItems.ts.
+   */
+  function remapCollapsedBodyLinesAfterMove(collapsedSet, aStart, aEnd, aLen, bStart, bEnd, bLen) {
+    if (!collapsedSet) return collapsedSet;
+    const remapped = new Set();
+    for (const lineIdx of collapsedSet) {
+      if (lineIdx >= aStart && lineIdx <= aEnd) remapped.add(lineIdx + bLen);
+      else if (lineIdx >= bStart && lineIdx <= bEnd) remapped.add(lineIdx - aLen);
+      else remapped.add(lineIdx);
+    }
+    return remapped;
+  }
+
+  /**
+   * Move a body item up/down among its same-indent siblings by swapping its
+   * whole line block (through bodyItemLastLineIdx, i.e. including nested
+   * children) with the adjacent sibling's block. Indentation/markers are
+   * preserved verbatim. Returns { body, newLineIdx } or null on a boundary
+   * no-op. Mirrors src/bodyItems.ts.
+   */
+  function moveBodyItemLines(bodyText, lineIdx, delta) {
+    const tree = getBodyItemTree(bodyText);
+    const located = findBodyItemSiblings(tree, lineIdx);
+    if (!located) return null;
+    const { siblings, index } = located;
+    const j = index + delta;
+    if (j < 0 || j >= siblings.length) return null;
+
+    const a = siblings[Math.min(index, j)];
+    const b = siblings[Math.max(index, j)];
+    const aStart = a.lineIdx;
+    const aEnd = bodyItemLastLineIdx(a);
+    const bStart = b.lineIdx;
+    const bEnd = bodyItemLastLineIdx(b);
+    const bLen = bEnd - bStart + 1;
+
+    const lines = (bodyText || '').split('\n');
+    const before = lines.slice(0, aStart);
+    const aBlock = lines.slice(aStart, aEnd + 1);
+    const bBlock = lines.slice(bStart, bEnd + 1);
+    const after = lines.slice(bEnd + 1);
+    const newLines = [...before, ...bBlock, ...aBlock, ...after];
+
+    const newLineIdx = delta < 0 ? aStart : aStart + bLen;
+    return { body: newLines.join('\n'), newLineIdx };
   }
 
   /** Apply saved collapse state to a body item tree */
@@ -1538,6 +1605,16 @@
       if (selectedId) { const node = findById(root, selectedId); if (node) deleteNode(node); return; }
     }
 
+    if (e.altKey && e.key === 'ArrowUp' && selectedBodyItemData) {
+      e.preventDefault();
+      moveBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx, -1);
+      return;
+    }
+    if (e.altKey && e.key === 'ArrowDown' && selectedBodyItemData) {
+      e.preventDefault();
+      moveBodyItem(selectedBodyItemData.parentNode, selectedBodyItemData.lineIdx, 1);
+      return;
+    }
     if (e.altKey && e.key === 'ArrowUp' && selectedId) {
       e.preventDefault();
       const node = findById(root, selectedId);
@@ -1700,6 +1777,45 @@
     if (targetIdx < 0 || targetIdx >= parent.children.length) return;
     pushUndo();
     [parent.children[idx], parent.children[targetIdx]] = [parent.children[targetIdx], parent.children[idx]];
+    postStructuralEdit();
+    render();
+  }
+
+  /**
+   * Move a body item up/down among its same-indent siblings within its owning
+   * heading node's body. Mirrors moveNode for headings: swaps the item's line
+   * block with the adjacent sibling and persists via structuralEdit. Boundary
+   * moves (already first/last sibling) are no-ops.
+   */
+  function moveBodyItem(parentNode, lineIdx, delta) {
+    if (!parentNode) return;
+    const tree = getBodyItemTree(parentNode.body);
+    const located = findBodyItemSiblings(tree, lineIdx);
+    if (!located) return;
+    const { siblings, index } = located;
+    const j = index + delta;
+    if (j < 0 || j >= siblings.length) return;
+
+    const a = siblings[Math.min(index, j)];
+    const b = siblings[Math.max(index, j)];
+    const aStart = a.lineIdx;
+    const aEnd = bodyItemLastLineIdx(a);
+    const bStart = b.lineIdx;
+    const bEnd = bodyItemLastLineIdx(b);
+    const aLen = aEnd - aStart + 1;
+    const bLen = bEnd - bStart + 1;
+
+    const res = moveBodyItemLines(parentNode.body, lineIdx, delta);
+    if (!res) return;
+
+    pushUndo();
+    parentNode.collapsedBodyLines = remapCollapsedBodyLinesAfterMove(
+      parentNode.collapsedBodyLines, aStart, aEnd, aLen, bStart, bEnd, bLen
+    );
+    parentNode.body = res.body;
+    // Follow the moved item to its new source position.
+    selectedBodyItemKey = `${parentNode.id}:${res.newLineIdx}`;
+    selectedBodyItemData = { parentNode, lineIdx: res.newLineIdx, indent: located.siblings[index].indent };
     postStructuralEdit();
     render();
   }
@@ -2006,6 +2122,8 @@
         }
         break;
       }
+      case 'body-move-up':      { if (contextBodyItem) moveBodyItem(contextBodyItem.parentNode, contextBodyItem.item.lineIdx, -1); break; }
+      case 'body-move-down':    { if (contextBodyItem) moveBodyItem(contextBodyItem.parentNode, contextBodyItem.item.lineIdx, 1); break; }
       case 'body-add-child': {
         if (!contextBodyItem) return;
         if (contextBodyItem.parentNode.collapsedBodyLines?.delete(contextBodyItem.item.lineIdx)) postBodyItemCollapseState();
@@ -2096,10 +2214,21 @@
     const multiItems = keepMultiSelection ? getMultiSelectedBodyItemsData() : [{ parentNode, lineIdx: item.lineIdx, indent: item.indent }];
     const promoteDisabled = multiItems.length === 0 || multiItems.some(it => it.parentNode.level >= 6 || it.indent !== 0);
 
+    // Move up/down operate on a single item's same-indent siblings; disable
+    // while a multi-selection is active and at the sibling-list boundaries.
+    const located = findBodyItemSiblings(getBodyItemTree(parentNode.body), item.lineIdx);
+    const sibCount = located ? located.siblings.length : 0;
+    const sibIdx = located ? located.index : -1;
+    const moveDisabledBase = keepMultiSelection || !located;
+
     buildContextMenu([
       { action: 'body-add-sibling', label: '同階層に追加',              disabled: false },
       { action: 'body-add-child',   label: '子項目を追加',              disabled: false },
       { action: 'body-toggle-type', label: item.type === 'checkbox' ? 'チェックボックスをやめる' : 'チェックボックスにする', disabled: false },
+      { divider: true },
+      { action: 'body-move-up',     label: '↑ 上へ移動',            disabled: moveDisabledBase || sibIdx <= 0 },
+      { action: 'body-move-down',   label: '↓ 下へ移動',            disabled: moveDisabledBase || sibIdx >= sibCount - 1 },
+      { divider: true },
       { action: 'body-promote',     label: '見出しにする',              disabled: promoteDisabled },
       { divider: true },
       { action: 'body-item-delete', label: '本文行を削除',              danger: true },
@@ -2514,30 +2643,32 @@
     return best;
   }
 
-  function collectBodyDropFromItems(items, ds, sx, sy, cb) {
+  // `owner` (the heading node that holds these body items) is threaded through
+  // as a parameter rather than stored on each item. Tagging items with an
+  // `_owner` back-reference (item._owner = node, where node._bodyItems contains
+  // item) makes `root` circular; postStructuralEdit posts `root`, and VS Code's
+  // webview messaging cannot serialize a cycle, so the structuralEdit message
+  // threw and body-item drops never reached the file. Passing owner keeps the
+  // posted tree acyclic and serializable.
+  function collectBodyDropFromItems(items, owner, ds, sx, sy, cb) {
     for (const item of items) {
       // Skip the dragged item itself (match by owner + lineIdx)
-      const isDragSrc = item._owner && item._owner.id === ds.parentNode.id && item.lineIdx === ds.lineIdx;
+      const isDragSrc = owner.id === ds.parentNode.id && item.lineIdx === ds.lineIdx;
       if (!isDragSrc) {
         const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = item._h || BODY_H;
         if (sx >= nx - DROP_TOLERANCE && sx <= nx + nw + DROP_TOLERANCE && sy >= ny - DROP_TOLERANCE && sy <= ny + nh + DROP_TOLERANCE) {
           const relY = sy - ny;
           const pos = relY < nh * 0.25 ? 'before' : relY > nh * 0.75 ? 'after' : 'inside';
-          cb({ type: 'body-item', targetNode: item._owner, targetItem: item, position: pos },
+          cb({ type: 'body-item', targetNode: owner, targetItem: item, position: pos },
              distToRect(sx, sy, nx, ny, nw, nh));
         }
       }
-      collectBodyDropFromItems(item.children, ds, sx, sy, cb);
+      collectBodyDropFromItems(item.children, owner, ds, sx, sy, cb);
     }
   }
 
   function collectBodyDropCandidates(node, ds, sx, sy, cb) {
     if (!node.collapsed && node._bodyItems) {
-      // tag items with owner (heading node) for later reference
-      function tagOwner(items, owner) {
-        for (const i of items) { i._owner = owner; tagOwner(i.children, owner); }
-      }
-      tagOwner(node._bodyItems, node);
       for (const item of node._bodyItems) {
         if (node.id === ds.parentNode.id && item.lineIdx === ds.lineIdx) continue;
         const nx = item._x, ny = item._y, nw = item._w || BODY_MIN_W, nh = item._h || BODY_H;
@@ -2547,7 +2678,7 @@
           cb({ type: 'body-item', targetNode: node, targetItem: item, position: pos },
              distToRect(sx, sy, nx, ny, nw, nh));
         }
-        collectBodyDropFromItems(item.children, ds, sx, sy, cb);
+        collectBodyDropFromItems(item.children, node, ds, sx, sy, cb);
       }
     }
     const nx = node._x, ny = node._y, nw = node._w || NODE_MIN_W, nh = node._h || NODE_H;

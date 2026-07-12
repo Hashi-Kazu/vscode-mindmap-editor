@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.21.0] - 2026-07-12
+
+### Added
+- 本文項目（子項目含む）の上下移動を、右クリックメニューの「↑ 上へ移動」「↓ 下へ移動」および `Alt+↑` / `Alt+↓` から操作可能にした — R-13-17（新設）。見出しノードの R-08 と同列で、同一親・同一インデントの兄弟本文項目間の順序を変更する。
+  - 移動対象は自身の行ブロック（`bodyItemLastLineIdx` までの子項目を含む）とし、隣接する兄弟ブロックと入れ替える。インデント・種別（チェックボックス/箇条書き）は変更しない（純粋な兄弟スワップ、NF-03）。折りたたみ状態（`collapsedBodyLines`）は移動後の行番号へ再マップする。
+  - 先頭項目の「上へ移動」・末尾項目の「下へ移動」はメニューでグレーアウト。複数選択中はメニュー項目を無効化。`Alt+↑/↓` は本文項目選択中は本文移動を優先し、見出し選択中は従来の見出し移動（R-08-02）。
+  - 純粋ロジックを `src/bodyItems.ts`（`moveBodyItemLines` / `findBodyItemSiblings` / `remapCollapsedBodyLinesAfterMove`）に実装し `test/bodyItems.test.ts` でユニットテストを追加。`media/mindmap.js` にも同一ロジックをミラー（SYNC REQUIRED コメント更新）。
+
+### Fixed
+- 本文項目（子項目含む）を D&D で移動・並び替えしても `.md` に即時反映されない不具合を修正 — R-13-10（改訂）。
+  - 原因: `media/mindmap.js` の `collectBodyDropCandidates` 内 `tagOwner` が全可視本文項目に `item._owner = node`（node = 所有見出しノード、`node._bodyItems` に item を含む）を代入して `root` を循環参照化していた。ドロップ判定は `performBodyDrop` 冒頭の `getBodyDropTarget` で走るため、`postStructuralEdit()` が `postMessage(root)` する時点で `root` は循環構造となり、VS Code の webview メッセージングがシリアライズできず例外に。構造変更が拡張機能へ届かず `.md` が更新されず、例外で末尾の `render()` もスキップされビューも無反応だった。見出しノードの D&D は `_owner` を付与しないため正常だったのが非対称性の理由。
+  - 修正: `_owner` 逆参照を廃止し、owner（所有見出しノード）を `collectBodyDropFromItems` / `collectBodyDropCandidates` へパラメータとして受け渡すことで循環を根本から除去。`postStructuralEdit` の posted `root` を常にシリアライズ可能に保つ。`test/dragDrop.test.ts` に「ドロップ判定後も `root` が JSON シリアライズ可能（非循環）」の回帰テストを追加。
+
 ## [2.20.2] - 2026-07-12
 
 ### Fixed

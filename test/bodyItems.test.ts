@@ -9,6 +9,9 @@ import {
   findBodyItemByLineIdx,
   reformatBodyLines,
   remapCollapsedBodyLinesAfterDelete,
+  remapCollapsedBodyLinesAfterMove,
+  findBodyItemSiblings,
+  moveBodyItemLines,
   toggleBodyItemType,
   bodyItemTreeToLines,
   type BodyItem,
@@ -488,4 +491,90 @@ test('bodyItemTreeToLines offsets the leading indent when depth is 1 or more', (
   ];
   assert.deepEqual(bodyItemTreeToLines(items, 1), ['  - a']);
   assert.deepEqual(bodyItemTreeToLines(items, 2), ['    - a']);
+});
+
+// ─── findBodyItemSiblings / moveBodyItemLines / remapCollapsedBodyLinesAfterMove ─
+
+test('findBodyItemSiblings locates top-level and nested sibling arrays', () => {
+  const body = '- a\n- b\n  - b1\n  - b2\n- c';
+  const tree = getBodyItemTree(body);
+  const top = findBodyItemSiblings(tree, 4); // c
+  assert.ok(top);
+  assert.equal(top!.siblings.length, 3);
+  assert.equal(top!.index, 2);
+  const nested = findBodyItemSiblings(tree, 3); // b2
+  assert.ok(nested);
+  assert.equal(nested!.siblings.length, 2);
+  assert.equal(nested!.index, 1);
+  assert.equal(findBodyItemSiblings(tree, 99), null);
+});
+
+test('moveBodyItemLines swaps adjacent top-level siblings (up and down)', () => {
+  const body = '- a\n- b\n- c';
+  const down = moveBodyItemLines(body, 0, 1); // move a down
+  assert.deepEqual(down, { body: '- b\n- a\n- c', newLineIdx: 1 });
+  const up = moveBodyItemLines(body, 2, -1); // move c up
+  assert.deepEqual(up, { body: '- a\n- c\n- b', newLineIdx: 1 });
+});
+
+test('moveBodyItemLines returns null at sibling boundaries', () => {
+  const body = '- a\n- b\n- c';
+  assert.equal(moveBodyItemLines(body, 0, -1), null); // a already first
+  assert.equal(moveBodyItemLines(body, 2, 1), null);  // c already last
+});
+
+test('moveBodyItemLines moves an item together with its nested children block', () => {
+  const body = '- a\n- b\n  - b1\n  - b2\n- c';
+  // move b (with b1,b2) down past c
+  const res = moveBodyItemLines(body, 1, 1);
+  assert.deepEqual(res, { body: '- a\n- c\n- b\n  - b1\n  - b2', newLineIdx: 2 });
+  // moved item b now starts at line 2, its children intact
+  const tree = getBodyItemTree(res!.body);
+  const b = findBodyItemByLineIdx(tree, 2);
+  assert.ok(b);
+  assert.equal(b!.text, 'b');
+  assert.equal(b!.children.length, 2);
+});
+
+test('moveBodyItemLines only reorders among same-indent siblings (nested)', () => {
+  const body = '- p\n  - x\n  - y';
+  const res = moveBodyItemLines(body, 2, -1); // move y above x
+  assert.deepEqual(res, { body: '- p\n  - y\n  - x', newLineIdx: 1 });
+});
+
+test('moveBodyItemLines preserves indentation and markers verbatim', () => {
+  const body = '  - [x] a\n  - b';
+  const res = moveBodyItemLines(body, 0, 1);
+  assert.deepEqual(res, { body: '  - b\n  - [x] a', newLineIdx: 1 });
+});
+
+test('remapCollapsedBodyLinesAfterMove shifts a-block down and b-block up', () => {
+  // a-block: lines 1-2 (len 2), b-block: line 3 (len 1); b immediately follows a
+  const remapped = remapCollapsedBodyLinesAfterMove(
+    new Set([0, 1, 3]), 1, 2, 2, 3, 3, 1
+  );
+  // 0 unchanged; 1 (a-block) -> 1+1=2; 3 (b-block) -> 3-2=1
+  assert.deepEqual(remapped, new Set([0, 2, 1]));
+  assert.equal(remapCollapsedBodyLinesAfterMove(undefined, 1, 2, 2, 3, 3, 1), undefined);
+});
+
+// ─── webview/src mirror parity ───────────────────────────────────────────────
+
+test('media/mindmap.js moveBodyItem mirrors the pure logic and persists', () => {
+  const fn = extractWebviewFunction('moveBodyItem');
+  assert.ok(fn.includes('moveBodyItemLines('), 'should delegate line math to moveBodyItemLines');
+  assert.ok(fn.includes('remapCollapsedBodyLinesAfterMove('), 'should remap collapse state');
+  assert.ok(fn.includes('postStructuralEdit()'), 'should persist via structuralEdit');
+});
+
+test('media/mindmap.js body-item context menu exposes move up/down actions', () => {
+  const fn = extractWebviewFunction('showBodyItemContextMenu');
+  assert.ok(fn.includes("action: 'body-move-up'"), 'menu should include body-move-up');
+  assert.ok(fn.includes("action: 'body-move-down'"), 'menu should include body-move-down');
+});
+
+test('media/mindmap.js handleContextAction handles body move actions', () => {
+  const fn = extractWebviewFunction('handleContextAction');
+  assert.ok(fn.includes("case 'body-move-up'"), 'handler should have body-move-up case');
+  assert.ok(fn.includes("case 'body-move-down'"), 'handler should have body-move-down case');
 });
