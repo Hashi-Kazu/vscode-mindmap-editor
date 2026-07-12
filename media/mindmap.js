@@ -863,11 +863,27 @@
     svgLayer.innerHTML = '';
     nodeLayer.innerHTML = '';
 
+    const hadPendingBodyEdit = !!_pendingBodyEdit;
     drawConnections(root, svgLayer);
     drawNodes(root, nodeLayer);
 
     if (_pendingBodyEdit) {
+      // The pending body-item add was never drawn (parent collapsed / item
+      // re-synced away), so its inline input can't open — release the guard
+      // and drain any held update (R-13-14).
       _pendingBodyEdit = null;
+      bodyEditing = false;
+      applyPendingUpdate();
+    } else if (!hadPendingBodyEdit && (editingId || bodyEditing)
+               && !nodeLayer.querySelector('input.edit-input')) {
+      // A direct render() (e.g. setFontSize / setEdgeWidth) tore down a live
+      // inline <input> without firing its blur handler, leaving editingId or
+      // bodyEditing stranded. External source-editor 'update's would then pile
+      // up in pendingUpdate forever. Detecting the absence of a live edit input
+      // here releases those stranded locks and applies the held update.
+      // (A just-consumed _pendingBodyEdit whose input opens asynchronously in
+      // the requestAnimationFrame above is excluded via hadPendingBodyEdit.)
+      editingId = null;
       bodyEditing = false;
       applyPendingUpdate();
     }

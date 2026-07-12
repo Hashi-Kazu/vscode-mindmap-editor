@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.20.2] - 2026-07-12
+
+### Fixed
+- `.md` ソースエディタでの編集がマインドマップビューアへ「時々」リアルタイム反映されない不具合を修正 — R-11-09 / R-13-14。`media/mindmap.js` の `render()` が `nodeLayer.innerHTML = ''` で進行中のインライン `<input>` を DOM から除去する際、`blur`（commit/cancel）が発火しないため見出し編集の `editingId` や既存本文項目編集の `bodyEditing` が解放されず、保留された外部 update（`pendingUpdate`）が恒久的に取りこぼされていた（例: 編集中に `setFontSize` / `setEdgeWidth` が無条件 `render()` を呼ぶ経路）。
+  - `render()` に、`drawNodes` 後に live なインライン編集入力（`input.edit-input`）が存在しないのに `editingId` / `bodyEditing` が立っている状態を検出して解放し、`applyPendingUpdate()` で保留 update を適用する汎用処理を追加。
+  - 本文項目「追加」時に非同期（`requestAnimationFrame`）で入力を開く `_pendingBodyEdit` のケースは `hadPendingBodyEdit` フラグで除外し、誤解放しないようにした。既存の未描画 `_pendingBodyEdit` 解放挙動（R-13-14）は維持。
+
 ## [2.20.1] - 2026-07-11
 
 ### Fixed
