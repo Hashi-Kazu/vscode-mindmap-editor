@@ -4,7 +4,8 @@
  * IMPORTANT: This is a TypeScript port of the same functions living in
  * `media/mindmap.js` (getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
  * findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
- * toggleBodyItemType / bodyItemTreeToLines). The webview script is served as a
+ * remapCollapsedBodyLinesAfterMove / moveBodyItemLines / toggleBodyItemType /
+ * bodyItemTreeToLines). The webview script is served as a
  * raw static asset and is NOT bundled by esbuild, so the logic is intentionally
  * duplicated here for unit testing. If you change the parsing rules in one
  * place, mirror the change in the other or the on-disk model and the rendered
@@ -115,6 +116,94 @@ export function remapCollapsedBodyLinesAfterDelete(
     else if (lineIdx >= endLineIdx) remapped.add(lineIdx - lineCount);
   }
   return remapped;
+}
+
+/**
+ * Locate a body item's sibling array (the `children` of its immediate parent,
+ * or the top-level `roots`) and its index within that array. Returns null when
+ * the lineIdx is not found anywhere in the tree.
+ */
+export function findBodyItemSiblings(
+  tree: BodyItem[],
+  lineIdx: number
+): { siblings: BodyItem[]; index: number } | null {
+  const idx = tree.findIndex((it) => it.lineIdx === lineIdx);
+  if (idx !== -1) return { siblings: tree, index: idx };
+  for (const item of tree) {
+    const found = findBodyItemSiblings(item.children, lineIdx);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Remap a collapsed-line set after two adjacent sibling blocks have been
+ * swapped. `a` is the earlier block (lines aStart..aEnd, length aLen) and `b`
+ * the later block (bStart..bEnd, length bLen); b immediately follows a
+ * (bStart === aEnd + 1). After the swap, a-block lines shift down by bLen and
+ * b-block lines shift up by aLen; lines outside [aStart, bEnd] are unchanged.
+ */
+export function remapCollapsedBodyLinesAfterMove(
+  collapsedSet: Set<number> | undefined,
+  aStart: number,
+  aEnd: number,
+  aLen: number,
+  bStart: number,
+  bEnd: number,
+  bLen: number
+): Set<number> | undefined {
+  if (!collapsedSet) return collapsedSet;
+  const remapped = new Set<number>();
+  for (const lineIdx of collapsedSet) {
+    if (lineIdx >= aStart && lineIdx <= aEnd) remapped.add(lineIdx + bLen);
+    else if (lineIdx >= bStart && lineIdx <= bEnd) remapped.add(lineIdx - aLen);
+    else remapped.add(lineIdx);
+  }
+  return remapped;
+}
+
+/**
+ * Move a body item up or down among its same-indent siblings by swapping its
+ * whole line block (its own line through bodyItemLastLineIdx, i.e. including
+ * nested children) with the adjacent sibling's block. Indentation and markers
+ * are preserved verbatim — this is a pure sibling reorder, never a re-indent.
+ *
+ * Returns { body, newLineIdx } with the moved item's new source line index, or
+ * null when the move is a boundary no-op (already first/last sibling) or the
+ * lineIdx is not found.
+ */
+export function moveBodyItemLines(
+  bodyText: string,
+  lineIdx: number,
+  delta: number
+): { body: string; newLineIdx: number } | null {
+  const tree = getBodyItemTree(bodyText);
+  const located = findBodyItemSiblings(tree, lineIdx);
+  if (!located) return null;
+  const { siblings, index } = located;
+  const j = index + delta;
+  if (j < 0 || j >= siblings.length) return null;
+
+  const a = siblings[Math.min(index, j)];
+  const b = siblings[Math.max(index, j)];
+  const aStart = a.lineIdx;
+  const aEnd = bodyItemLastLineIdx(a);
+  const bStart = b.lineIdx;
+  const bEnd = bodyItemLastLineIdx(b);
+  const bLen = bEnd - bStart + 1;
+
+  const lines = (bodyText || '').split('\n');
+  const before = lines.slice(0, aStart);
+  const aBlock = lines.slice(aStart, aEnd + 1);
+  const bBlock = lines.slice(bStart, bEnd + 1);
+  const after = lines.slice(bEnd + 1);
+  const newLines = [...before, ...bBlock, ...aBlock, ...after];
+
+  // Moving up: the dragged item is `b`, now starting at aStart.
+  // Moving down: the dragged item is `a`, now starting at aStart + bLen.
+  const newLineIdx = delta < 0 ? aStart : aStart + bLen;
+
+  return { body: newLines.join('\n'), newLineIdx };
 }
 
 /**

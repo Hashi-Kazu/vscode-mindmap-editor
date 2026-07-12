@@ -91,3 +91,56 @@ test('R-13-10: performBodyDrop has no text-match fallback', () => {
   assert.ok(fnText.includes('i.lineIdx === adjustedIdx'));
   assert.ok(!fnText.includes('i.text === result.targetItem.text'));
 });
+
+test('R-13-XX: body-item drop collection keeps root JSON-serializable (no _owner cycle)', () => {
+  // Regression for the body-item D&D sync bug: tagging body items with an
+  // `_owner` back-reference (item._owner = node, node._bodyItems ∋ item) made
+  // `root` circular, so postStructuralEdit's postMessage(root) threw and the
+  // move never reached the .md file. Owner must be threaded as a parameter.
+  const collectCandidatesSrc = extractFunction('collectBodyDropCandidates');
+  const collectFromItemsSrc = extractFunction('collectBodyDropFromItems');
+  const distToRectSrc = extractFunction('distToRect');
+
+  // The tagging function/back-reference must be gone entirely.
+  assert.ok(!collectCandidatesSrc.includes('_owner'),
+    'collectBodyDropCandidates must not tag items with _owner');
+  assert.ok(!collectFromItemsSrc.includes('_owner'),
+    'collectBodyDropFromItems must not read/write _owner');
+
+  const makeItem = (lineIdx: number, y: number, children: unknown[] = []) => ({
+    lineIdx, indent: 0, children,
+    _x: 100, _y: y, _w: 120, _h: 42,
+  });
+  const a = makeItem(0, 100);
+  const b = makeItem(1, 150);
+  const node: Record<string, unknown> = {
+    id: 'n1', collapsed: false, children: [],
+    _x: 0, _y: 100, _w: 100, _h: 46,
+    _bodyItems: [a, b],
+    body: '- a\n- b',
+  };
+  const root = node;
+
+  const harness = new Function(`
+    const DROP_TOLERANCE = 40, BODY_MIN_W = 80, BODY_H = 42, NODE_MIN_W = 100, NODE_H = 46;
+    ${distToRectSrc}
+    ${collectFromItemsSrc}
+    ${collectCandidatesSrc}
+    return function(root, ds, sx, sy) {
+      const results = [];
+      collectBodyDropCandidates(root, ds, sx, sy, (r) => results.push(r));
+      return results;
+    };
+  `)() as (root: unknown, ds: unknown, sx: number, sy: number) => Array<{ type: string }>;
+
+  // Drag item `a`, hover over item `b`.
+  const ds = { parentNode: { id: 'n1' }, lineIdx: 0 };
+  const results = harness(root, ds, 110, 160);
+  assert.ok(results.some((r) => r.type === 'body-item'),
+    'should find body-item drop candidate for a same-node reorder');
+
+  // The crux: the posted tree must still serialize (previously threw with the
+  // _owner cycle).
+  assert.doesNotThrow(() => JSON.stringify(root),
+    'root must remain acyclic / JSON-serializable after drop collection');
+});
