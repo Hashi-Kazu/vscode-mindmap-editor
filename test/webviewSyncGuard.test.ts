@@ -211,6 +211,26 @@ test('R-13-14: render releases unconsumed _pendingBodyEdit and bodyEditing', () 
   assert.ok(src.includes('applyPendingUpdate()'));
 });
 
+test('R-13-14 / R-11-09: render() releases a stranded editingId/bodyEditing and applies the pending update', () => {
+  const src = extractFunction('render');
+  // A live inline edit input is detected via the edit-input selector, and its
+  // absence while editingId/bodyEditing is set triggers a release.
+  assert.ok(src.includes("nodeLayer.querySelector('input.edit-input')"),
+    'render() must probe for a live inline edit input');
+  assert.ok(/editingId \|\| bodyEditing/.test(src),
+    'render() must consider both editingId and bodyEditing as stranded locks');
+  assert.ok(src.includes('editingId = null'),
+    'render() must release a stranded editingId');
+  assert.ok(src.includes('bodyEditing = false'),
+    'render() must release a stranded bodyEditing');
+  assert.ok(src.includes('applyPendingUpdate()'),
+    'render() must apply the held update after releasing locks');
+  // The just-consumed _pendingBodyEdit case (async input via rAF) must be
+  // excluded from the stranded-lock release path.
+  assert.ok(src.includes('hadPendingBodyEdit'),
+    'render() must exclude the async _pendingBodyEdit case from the release path');
+});
+
 test('R-13-14: addBodyItem resets checked filter for top-level add', () => {
   const src = extractFunction('addBodyItem');
   assert.ok(src.includes("indent === 0 && checkboxFilter === 'checked'"));
