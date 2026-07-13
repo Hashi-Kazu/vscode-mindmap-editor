@@ -32,6 +32,10 @@ export type WebviewMessage =
       // backward compatibility with older webview scripts).
       baseGeneration?: number;
       docUri?: string;
+      // Body-item collapse paths recomputed from the post-edit tree so the
+      // extension can refresh its cache when headings move/rename/delete
+      // (optional for backward compatibility with older webview scripts).
+      bodyItemCollapsePaths?: string[];
     }
   | { type: 'saveCollapseState'; collapsedPaths: string[] }
   | { type: 'saveBodyItemCollapseState'; paths: string[] }

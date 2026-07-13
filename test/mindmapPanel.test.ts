@@ -20,6 +20,22 @@ test('R-06-09: saveBodyItemCollapseState uses the operation and conflict guards'
   assert.match(block, /finally\s*{\s*this\.isOperating = false;/);
 });
 
+test('Issue#38: structuralEdit updates lastBodyItemCollapsePaths from the message', () => {
+  const block = panelSource.match(
+    /case 'structuralEdit':[\s\S]*?case 'saveCollapseState':/
+  )?.[0];
+  assert.ok(block, 'structuralEdit case must exist');
+  // Cache must be refreshed from the message (array-guarded) before commitTree,
+  // so relocated/orphaned body-item-collapse paths are not written back.
+  const assignIdx = block.search(
+    /if\s*\(\s*Array\.isArray\(\s*msg\.bodyItemCollapsePaths\s*\)\s*\)[\s\S]*?this\.lastBodyItemCollapsePaths\s*=\s*msg\.bodyItemCollapsePaths;/
+  );
+  assert.ok(assignIdx >= 0, 'array-guarded assignment to lastBodyItemCollapsePaths must exist');
+  const commitIdx = block.search(/await this\.commitTree\(/);
+  assert.ok(commitIdx >= 0, 'commitTree call must exist');
+  assert.ok(assignIdx < commitIdx, 'assignment must precede commitTree');
+});
+
 test('BUG-17: obsolete webview message variants are removed', () => {
   assert.ok(!typesSource.includes("type: 'renameNode'"));
   assert.ok(!typesSource.includes("type: 'editBody'"));

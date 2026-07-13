@@ -1765,6 +1765,7 @@
       root,
       baseGeneration: appliedGeneration,
       docUri: appliedDocUri,
+      bodyItemCollapsePaths: extractBodyItemCollapsePaths(),
     });
   }
 

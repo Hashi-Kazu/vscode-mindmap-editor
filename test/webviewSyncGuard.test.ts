@@ -148,6 +148,7 @@ test('postStructuralEdit が baseGeneration/docUri を含む', () => {
     let appliedGeneration = 7;
     let appliedDocUri = 'file:///doc.md';
     let pendingUpdate = { type: 'update', root: { id: 'held' } };
+    function extractBodyItemCollapsePaths() { return []; }
     ${src}
     postStructuralEdit();
     return { posted, get pendingUpdate() { return pendingUpdate; } };
@@ -158,6 +159,27 @@ test('postStructuralEdit が baseGeneration/docUri を含む', () => {
   assert.equal(h.posted[0].baseGeneration, 7);
   assert.equal(h.posted[0].docUri, 'file:///doc.md');
   assert.equal(h.pendingUpdate, null, 'held update is dropped on commit');
+});
+
+// Issue#38 / R-15-05: structuralEdit は編集後ツリーから再計算した
+// body-item-collapse パスを同梱し、拡張側のキャッシュ更新を可能にする
+test('postStructuralEdit が body-item collapse パスを含む', () => {
+  const src = extractFunction('postStructuralEdit');
+  const h = new Function(`
+    const posted = [];
+    const vscode = { postMessage: (m) => posted.push(m) };
+    let root = { id: 'web-root' };
+    let appliedGeneration = 7;
+    let appliedDocUri = 'file:///doc.md';
+    let pendingUpdate = null;
+    function extractBodyItemCollapsePaths() { return ['A/B::x']; }
+    ${src}
+    postStructuralEdit();
+    return { posted };
+  `)() as { posted: Array<Record<string, unknown>> };
+
+  assert.equal(h.posted[0].type, 'structuralEdit');
+  assert.deepEqual(h.posted[0].bodyItemCollapsePaths, ['A/B::x']);
 });
 
 // BUG-04 / R-12-09: render による入力欄破棄では blur が発火せずロックが残るため、

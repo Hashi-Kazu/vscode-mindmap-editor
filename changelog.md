@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.21.3] - 2026-07-13
+
+### Fixed
+- 閉じた本文項目（`body-item-collapse`）を持つ見出しノードを移動・削除・リネーム・左右変更しても、フロントマターの `body-item-collapse` エントリが更新されず旧パスが残る不具合を修正（Issue #38 / R-15-05）。
+  - Webview（`media/mindmap.js`）の `postStructuralEdit()` が構造変更後のツリー基準で再計算した `bodyItemCollapsePaths`（`extractBodyItemCollapsePaths()`）を `structuralEdit` メッセージに同梱するようにした。
+  - 拡張側（`src/mindmapPanel.ts`）の `structuralEdit` ハンドラで、配列ガード付きで `lastBodyItemCollapsePaths` キャッシュを受信値で更新してから `commitTree` を呼ぶようにした。旧 Webview（フィールドなし）では従来どおりキャッシュ値を使用（後方互換）。
+
 ## [2.21.2] - 2026-07-13
 
 ### Fixed
