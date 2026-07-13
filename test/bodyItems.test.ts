@@ -9,6 +9,7 @@ import {
   findBodyItemByLineIdx,
   reformatBodyLines,
   remapCollapsedBodyLinesAfterDelete,
+  remapCollapsedBodyLinesAfterInsert,
   remapCollapsedBodyLinesAfterMove,
   findBodyItemSiblings,
   moveBodyItemLines,
@@ -45,6 +46,19 @@ test('R-15-05: remapCollapsedBodyLinesAfterDelete drops deleted range and shifts
     new Set()
   );
   assert.equal(remapCollapsedBodyLinesAfterDelete(undefined, 2, 3), undefined);
+});
+
+test('Issue#40: remapCollapsedBodyLinesAfterInsert shifts entries at/after the insertion point', () => {
+  assert.deepEqual(
+    remapCollapsedBodyLinesAfterInsert(new Set([1, 3, 7]), 3, 2),
+    new Set([1, 5, 9])
+  );
+  // Entries strictly before the insertion point are untouched.
+  assert.deepEqual(
+    remapCollapsedBodyLinesAfterInsert(new Set([0, 1, 2]), 5, 4),
+    new Set([0, 1, 2])
+  );
+  assert.equal(remapCollapsedBodyLinesAfterInsert(undefined, 3, 2), undefined);
 });
 
 // ─── getBodyItems ───────────────────────────────────────────────────────────

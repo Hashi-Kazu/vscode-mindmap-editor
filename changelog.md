@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.21.4] - 2026-07-13
+
+### Fixed
+- 閉じた本文項目をドラッグ&ドロップで移動すると、フロントマターの `body-item-collapse` エントリが追随できず、想定外の行が閉じた状態として書き込まれる不具合を修正（Issue #40 / R-15-05）。
+  - Webview（`media/mindmap.js`）の `performBodyDrop()` が移動元/移動先の `body`（Markdown行）を書き換える一方、対応する `collapsedBodyLines`（折りたたみ行インデックスの Set）を全く更新していなかった。移動元に残る後続項目のインデックスがずれたまま、移動した項目自身（および折りたたまれた子孫）の折りたたみ状態は消失したまま保存されていた。
+  - 移動元は既存の `remapCollapsedBodyLinesAfterDelete` で削除範囲の除去とシフトを適用し、移動先は新設の `remapCollapsedBodyLinesAfterInsert` で挿入位置以降を挿入行数分シフトしたうえで、移動した項目自身の折りたたみ状態を新しい行インデックスへ再適用するようにした。`remapCollapsedBodyLinesAfterInsert` は `src/bodyItems.ts` にも同名関数としてミラーし、`media/mindmap.js` 側の `performBodyDrop` を実行するテストハーネスを `test/dragDrop.test.ts` に追加して検証した。
+
 ## [2.21.3] - 2026-07-13
 
 ### Fixed

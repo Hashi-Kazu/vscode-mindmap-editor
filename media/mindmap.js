@@ -436,8 +436,9 @@
   // ─── Body Item Helpers ────────────────────────────────────────────────────
   // SYNC REQUIRED: getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
   // findBodyItemByLineIdx / findBodyItemSiblings / reformatBodyLines /
-  // remapCollapsedBodyLinesAfterDelete / remapCollapsedBodyLinesAfterMove /
-  // moveBodyItemLines / toggleBodyItemType / bodyItemTreeToLines are mirrored in src/bodyItems.ts,
+  // remapCollapsedBodyLinesAfterDelete / remapCollapsedBodyLinesAfterInsert /
+  // remapCollapsedBodyLinesAfterMove / moveBodyItemLines / toggleBodyItemType /
+  // bodyItemTreeToLines are mirrored in src/bodyItems.ts,
   // while horizontal navigation and body-selection rebinding helpers are mirrored in src/navigation.ts
   // (unit-tested there since this file isn't bundled by esbuild). Keep both in
   // sync — divergence corrupts lineIdx-based body operations.
@@ -472,6 +473,20 @@
     for (const lineIdx of collapsedSet) {
       if (lineIdx < startLineIdx) remapped.add(lineIdx);
       else if (lineIdx >= endLineIdx) remapped.add(lineIdx - lineCount);
+    }
+    return remapped;
+  }
+
+  /**
+   * Shift a collapsed-line set after `lineCount` lines are inserted at
+   * `atLineIdx` (entries at/after the insertion point move down; earlier
+   * entries are unchanged). Mirrors src/bodyItems.ts.
+   */
+  function remapCollapsedBodyLinesAfterInsert(collapsedSet, atLineIdx, lineCount) {
+    if (!collapsedSet) return collapsedSet;
+    const remapped = new Set();
+    for (const lineIdx of collapsedSet) {
+      remapped.add(lineIdx >= atLineIdx ? lineIdx + lineCount : lineIdx);
     }
     return remapped;
   }
@@ -2720,7 +2735,20 @@
       const lineCount = lastLine - di.lineIdx + 1;
       const srcLinesArr = (di.parentNode.body || '').split('\n');
       const movedLines = srcLinesArr.slice(di.lineIdx, di.lineIdx + lineCount);
-      resolved.push({ parentNode: di.parentNode, lineIdx: di.lineIdx, lineCount, movedLines, srcIndent: it.indent });
+      // Capture the moved block's own collapse state (offsets relative to its
+      // first line) BEFORE the source removal drops it from parentNode's set,
+      // so a collapsed dragged item (or a collapsed descendant of it) keeps
+      // its closed state after landing in the destination node (Issue #40).
+      const collapsedOffsets = [];
+      const srcCollapsed = di.parentNode.collapsedBodyLines;
+      if (srcCollapsed) {
+        for (const lineIdx of srcCollapsed) {
+          if (lineIdx >= di.lineIdx && lineIdx < di.lineIdx + lineCount) {
+            collapsedOffsets.push(lineIdx - di.lineIdx);
+          }
+        }
+      }
+      resolved.push({ parentNode: di.parentNode, lineIdx: di.lineIdx, lineCount, movedLines, srcIndent: it.indent, collapsedOffsets });
     }
     if (resolved.length === 0) return;
 
@@ -2730,18 +2758,35 @@
     // Save original lineIdx of drop target before any deletions (for same-parent adjustment)
     const origTargetLineIdx = result.type === 'body-item' ? result.targetItem.lineIdx : -1;
 
-    // Remove all source items from their parent bodies
+    // Remove all source items from their parent bodies. Each removal also
+    // drops/shifts that node's collapsedBodyLines entries the same way the
+    // body lines themselves shift, so a still-collapsed sibling further down
+    // the body doesn't end up pointing at the wrong line (Issue #40).
     for (const r of resolved) {
       const srcLines = (r.parentNode.body || '').split('\n');
       srcLines.splice(r.lineIdx, r.lineCount);
       while (srcLines.length > 0 && srcLines[srcLines.length - 1].trim() === '') srcLines.pop();
       r.parentNode.body = srcLines.join('\n');
+      r.parentNode.collapsedBodyLines = remapCollapsedBodyLinesAfterDelete(r.parentNode.collapsedBodyLines, r.lineIdx, r.lineCount);
     }
 
-    // Collect all reformatted lines in original order (reversed resolved is ascending)
+    // Collect all reformatted lines in original order (reversed resolved is
+    // ascending), tracking each moved item's captured collapse offsets
+    // relative to their position within the combined inserted block.
     const allReformattedLines = [];
+    const movedCollapsedOffsets = [];
     for (const r of resolved.slice().reverse()) {
-      allReformattedLines.push(...reformatBodyLines(r.movedLines, r.srcIndent, destIndent));
+      const reformatted = reformatBodyLines(r.movedLines, r.srcIndent, destIndent);
+      for (const off of r.collapsedOffsets) movedCollapsedOffsets.push(allReformattedLines.length + off);
+      allReformattedLines.push(...reformatted);
+    }
+
+    /** Shift targetNode's existing collapse entries for the insert, then re-apply the moved items' own collapse state at their new lines. */
+    function applyCollapseOnInsert(targetNode, insertAt) {
+      targetNode.collapsedBodyLines = remapCollapsedBodyLinesAfterInsert(targetNode.collapsedBodyLines, insertAt, allReformattedLines.length);
+      if (movedCollapsedOffsets.length === 0) return;
+      if (!targetNode.collapsedBodyLines) targetNode.collapsedBodyLines = new Set();
+      for (const off of movedCollapsedOffsets) targetNode.collapsedBodyLines.add(insertAt + off);
     }
 
     // Compute lines removed from the target node that were BEFORE the target item's original lineIdx.
@@ -2769,6 +2814,7 @@
         const insertAt2 = allItems2.length > 0 ? allItems2[allItems2.length - 1].lineIdx + 1 : tgtLines.length;
         tgtLines.splice(insertAt2, 0, ...allReformattedLines);
         result.targetNode.body = tgtLines.join('\n');
+        applyCollapseOnInsert(result.targetNode, insertAt2);
       } else {
         const tgtLines = (result.targetNode.body || '').split('\n');
         // Resolve the drop target's subtree end from the hierarchical tree, not
@@ -2787,8 +2833,10 @@
         } else {
           insertAt = result.position === 'after' ? updatedLastLine + 1 : updatedTargetItem.lineIdx;
         }
-        tgtLines.splice(Math.max(0, insertAt), 0, ...allReformattedLines);
+        const clampedInsertAt = Math.max(0, insertAt);
+        tgtLines.splice(clampedInsertAt, 0, ...allReformattedLines);
         result.targetNode.body = tgtLines.join('\n');
+        applyCollapseOnInsert(result.targetNode, clampedInsertAt);
       }
     } else {
       // Drop onto heading node: append at end of body
@@ -2799,6 +2847,7 @@
         : tgtLines.length;
       tgtLines.splice(insertAt, 0, ...allReformattedLines);
       result.targetNode.body = tgtLines.join('\n');
+      applyCollapseOnInsert(result.targetNode, insertAt);
     }
 
     // A body-item move mutates one or more nodes' `body` in place on `root`.
