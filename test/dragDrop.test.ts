@@ -92,6 +92,29 @@ test('R-13-10: performBodyDrop has no text-match fallback', () => {
   assert.ok(!fnText.includes('i.text === result.targetItem.text'));
 });
 
+test('R-13-10: performBodyDrop resolves after-insert subtree end from the tree', () => {
+  // A downward `after` drop onto a body item that has children must insert past
+  // the target's whole subtree, not between the target line and its descendants
+  // (which would re-parent those descendants under the moved block). The subtree
+  // end must therefore be computed from the hierarchical tree
+  // (getBodyItemTree / findBodyItemByLineIdx), never from the flat item whose
+  // `children` is always empty.
+  const fnText = extractFunction('performBodyDrop');
+  const treeIdx = fnText.indexOf('getBodyItemTree(result.targetNode.body)');
+  const findIdx = fnText.indexOf('findBodyItemByLineIdx(tgtTree, updatedTargetItem.lineIdx)');
+  const lastLineIdx = fnText.indexOf('bodyItemLastLineIdx(treeTargetItem || updatedTargetItem)');
+  const afterIdx = fnText.indexOf("result.position === 'after'");
+  assert.ok(treeIdx >= 0, 'target body must be parsed into a tree for after-insert resolution');
+  assert.ok(findIdx > treeIdx, 'the tree target item must be located via findBodyItemByLineIdx');
+  // The subtree-end (bodyItemLastLineIdx) used for the `after` insert must be
+  // computed from the tree-resolved item, and must not be derived from the flat
+  // updatedTargetItem.
+  assert.ok(!fnText.includes('bodyItemLastLineIdx(updatedTargetItem)'),
+    'after-insert subtree end must not be computed from the flat updatedTargetItem');
+  assert.ok(lastLineIdx > findIdx, 'bodyItemLastLineIdx must run on the tree-resolved target');
+  assert.ok(afterIdx > lastLineIdx, 'the after-branch insert must use the tree-resolved subtree end');
+});
+
 test('R-13-XX: body-item drop collection keeps root JSON-serializable (no _owner cycle)', () => {
   // Regression for the body-item D&D sync bug: tagging body items with an
   // `_owner` back-reference (item._owner = node, node._bodyItems ∋ item) made

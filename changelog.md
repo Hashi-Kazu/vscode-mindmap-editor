@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.21.1] - 2026-07-13
+
+### Fixed
+- 本文項目を D&D で下方向に移動し、子項目を持つ項目の直後（`after`）へドロップしたとき、ドロップ先の子孫が移動項目側に付け替わり親子関係が壊れる不具合を修正 — R-13-10。`performBodyDrop` の `after` 挿入位置を、フラット項目（`children` 常に空）ではなく `getBodyItemTree` / `findBodyItemByLineIdx` で解決したツリー項目の `bodyItemLastLineIdx`（サブツリー末尾）から算出し、常にドロップ先サブツリー末尾の直後へ挿入するようにした。上方向（`before`）挙動は不変。
+
 ## [2.21.0] - 2026-07-12
 
 ### Added

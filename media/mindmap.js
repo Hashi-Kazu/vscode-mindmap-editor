@@ -2770,7 +2770,16 @@
         result.targetNode.body = tgtLines.join('\n');
       } else {
         const tgtLines = (result.targetNode.body || '').split('\n');
-        const updatedLastLine = bodyItemLastLineIdx(updatedTargetItem);
+        // Resolve the drop target's subtree end from the hierarchical tree, not
+        // from the flat item. Flat items always have empty `children`, so
+        // bodyItemLastLineIdx(flatItem) collapses to the target's own line and
+        // an `after` insert would land between the target and its descendants,
+        // re-parenting those descendants under the moved block. Resolving via
+        // getBodyItemTree/findBodyItemByLineIdx yields the true subtree end so
+        // `after` inserts past the whole subtree. R-13-10.
+        const tgtTree = getBodyItemTree(result.targetNode.body);
+        const treeTargetItem = findBodyItemByLineIdx(tgtTree, updatedTargetItem.lineIdx);
+        const updatedLastLine = bodyItemLastLineIdx(treeTargetItem || updatedTargetItem);
         let insertAt;
         if (result.position === 'inside') {
           insertAt = updatedTargetItem.lineIdx + 1;
