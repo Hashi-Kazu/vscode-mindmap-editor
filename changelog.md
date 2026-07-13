@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.21.2] - 2026-07-13
+
+### Fixed
+- 本文項目⇔見出しノードの単独昇格・降格（右クリックメニュー「見出しにする」「本文項目にする」）が `Ctrl+Z` で元に戻せない不具合を修正 — R-14-06。`promoteBodyItemToNode` / `demoteNodeToBodyItem` が Undo スナップショットを変更「後」に取得していたため復元できなかったのを、変更「前」に取得するよう修正（一括版 `promoteBodyItemsToNodes` / `demoteNodesToBodyItems` と順序を統一）。専用テスト `test/promoteDemote.test.ts` を追加し、R-14-01〜R-14-06 の検証を自動化。
+
 ## [2.21.1] - 2026-07-13
 
 ### Fixed

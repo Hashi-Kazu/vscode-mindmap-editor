@@ -2020,6 +2020,7 @@
     const tree = getBodyItemTree(parentNode.body);
     const item = findBodyItemByLineIdx(tree, lineIdx);
     if (!item || item.indent !== 0 || parentNode.level >= 6) return;
+    pushUndo();
     const lastLine = bodyItemLastLineIdx(item);
     const lineCount = lastLine - lineIdx + 1;
     const lines = (parentNode.body || '').split('\n');
@@ -2033,7 +2034,6 @@
     parentNode.children.unshift(newNode);
     parentNode.collapsed = false;
 
-    pushUndo();
     postStructuralEdit();
     render();
   }
@@ -2285,6 +2285,7 @@
     if (!root || node.id === root.id || node.level === 0) return;
     const parent = findParent(root, node);
     if (!parent || node.children.length > 0) return;
+    pushUndo();
 
     const headingLine = `- ${node.text}`;
     const bodyLines = node.body.trim()
@@ -2300,7 +2301,6 @@
     parent.children = parent.children.filter(c => c.id !== node.id);
     if (selectedId === node.id) selectedId = null;
 
-    pushUndo();
     postStructuralEdit();
     render();
   }
