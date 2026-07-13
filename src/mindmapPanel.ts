@@ -301,6 +301,16 @@ export class MindMapPanel {
         try {
           const webRoot = msg.root as MindMapNode;
           this.lastRoot = webRoot;
+          // Structural edits (move/delete/rename/promote-demote/body D&D) can
+          // relocate or drop headings that own collapsed body items. The
+          // webview recomputes body-item-collapse paths against the post-edit
+          // tree, so refresh the cache before serializing — otherwise stale
+          // (orphaned) paths would be written back (Issue #38, R-15-05).
+          // Guard for backward compatibility with older webview scripts that
+          // don't send the field (don't clobber the cache with an empty array).
+          if (Array.isArray(msg.bodyItemCollapsePaths)) {
+            this.lastBodyItemCollapsePaths = msg.bodyItemCollapsePaths;
+          }
           // A stale-generation edit missed an external change (it slipped past
           // the webview while an inline edit / drag held the update). Force it
           // through the R-11-06 conflict-resolution flow (R-11-09).
