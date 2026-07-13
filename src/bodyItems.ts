@@ -4,8 +4,8 @@
  * IMPORTANT: This is a TypeScript port of the same functions living in
  * `media/mindmap.js` (getBodyItems / getBodyItemTree / bodyItemLastLineIdx /
  * findBodyItemByLineIdx / reformatBodyLines / remapCollapsedBodyLinesAfterDelete /
- * remapCollapsedBodyLinesAfterMove / moveBodyItemLines / toggleBodyItemType /
- * bodyItemTreeToLines). The webview script is served as a
+ * remapCollapsedBodyLinesAfterInsert / remapCollapsedBodyLinesAfterMove /
+ * moveBodyItemLines / toggleBodyItemType / bodyItemTreeToLines). The webview script is served as a
  * raw static asset and is NOT bundled by esbuild, so the logic is intentionally
  * duplicated here for unit testing. If you change the parsing rules in one
  * place, mirror the change in the other or the on-disk model and the rendered
@@ -114,6 +114,24 @@ export function remapCollapsedBodyLinesAfterDelete(
   for (const lineIdx of collapsedSet) {
     if (lineIdx < startLineIdx) remapped.add(lineIdx);
     else if (lineIdx >= endLineIdx) remapped.add(lineIdx - lineCount);
+  }
+  return remapped;
+}
+
+/**
+ * Shift a collapsed-line set after `lineCount` lines are inserted at
+ * `atLineIdx`: entries at or after the insertion point move down by
+ * `lineCount`; earlier entries are unchanged.
+ */
+export function remapCollapsedBodyLinesAfterInsert(
+  collapsedSet: Set<number> | undefined,
+  atLineIdx: number,
+  lineCount: number
+): Set<number> | undefined {
+  if (!collapsedSet) return collapsedSet;
+  const remapped = new Set<number>();
+  for (const lineIdx of collapsedSet) {
+    remapped.add(lineIdx >= atLineIdx ? lineIdx + lineCount : lineIdx);
   }
   return remapped;
 }

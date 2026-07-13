@@ -115,6 +115,60 @@ test('R-13-10: performBodyDrop resolves after-insert subtree end from the tree',
   assert.ok(afterIdx > lastLineIdx, 'the after-branch insert must use the tree-resolved subtree end');
 });
 
+test('Issue#40: performBodyDrop remaps body-item-collapse state instead of leaving stale line indices', () => {
+  // Regression for the D&D frontmatter-tracking bug: performBodyDrop mutated
+  // parentNode.body / targetNode.body (splice/insert) without touching
+  // collapsedBodyLines, so a collapsed item's own state was dropped and a
+  // still-collapsed sibling further down the source body ended up pointing at
+  // the wrong (shifted) line — writing an unexpected path to the frontmatter.
+  const harness = new Function(`
+    const BODY_H = 42;
+    let dropTargetResult = null;
+    let posted = false;
+    let selectedBodyItemKey = null;
+    let selectedBodyItemData = null;
+    let selectedBodyItemKeys = new Set();
+    let selectedBodyItemsData = new Map();
+    function pushUndo() {}
+    function postStructuralEdit() { posted = true; }
+    function getBodyDropTarget() { return dropTargetResult; }
+    function render() {}
+    ${extractFunction('getBodyItems')}
+    ${extractFunction('getBodyItemTree')}
+    ${extractFunction('findBodyItemByLineIdx')}
+    ${extractFunction('bodyItemLastLineIdx')}
+    ${extractFunction('reformatBodyLines')}
+    ${extractFunction('remapCollapsedBodyLinesAfterDelete')}
+    ${extractFunction('remapCollapsedBodyLinesAfterInsert')}
+    ${extractFunction('performBodyDrop')}
+    return function(parentA, parentB, dragLineIdx) {
+      dropTargetResult = { type: 'heading', targetNode: parentB };
+      performBodyDrop({}, { parentNode: parentA, lineIdx: dragLineIdx });
+      return posted;
+    };
+  `)() as (parentA: Record<string, unknown>, parentB: Record<string, unknown>, dragLineIdx: number) => boolean;
+
+  const parentA: Record<string, unknown> = {
+    id: 'a',
+    body: '- a\n  - a-child\n- b',
+    collapsedBodyLines: new Set([0, 2]), // "a" (dragged) and "b" (untouched sibling) both closed
+  };
+  const parentB: Record<string, unknown> = { id: 'b', body: '- existing' };
+
+  const posted = harness(parentA, parentB, 0);
+  assert.equal(posted, true, 'the move must still persist via postStructuralEdit');
+
+  // Source: "a" (and its child) are gone; "b" shifted from line 2 to line 0
+  // and must still be recorded as collapsed at its NEW line, not the old one.
+  assert.equal(parentA.body, '- b');
+  assert.deepEqual(parentA.collapsedBodyLines, new Set([0]));
+
+  // Destination: "a" landed after "- existing" (line 1) and must carry its
+  // own collapsed state to that new line.
+  assert.equal(parentB.body, '- existing\n- a\n  - a-child');
+  assert.deepEqual(parentB.collapsedBodyLines, new Set([1]));
+});
+
 test('R-13-XX: body-item drop collection keeps root JSON-serializable (no _owner cycle)', () => {
   // Regression for the body-item D&D sync bug: tagging body items with an
   // `_owner` back-reference (item._owner = node, node._bodyItems ∋ item) made
