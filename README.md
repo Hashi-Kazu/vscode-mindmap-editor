@@ -27,14 +27,39 @@ Drag nodes to rearrange them or move them to a different parent. Drop indicators
 ノードをドラッグして並び替えたり、別の親ノードへ移動できます。ドロップインジケーターで移動先を正確に確認できます。
 
 ### 📋 Body Items as Nodes / 本文リスト項目のノード化
-List items (`- [ ]`, `- [x]`, `- item`) under a heading are rendered as **body nodes** in the tree. Checkboxes are clickable and toggle directly in Markdown. Body nodes dynamically resize to fit their text.
+List items (`- [ ]`, `- [x]`, `- item`) under a heading are rendered as **body nodes** in the tree, including nested (indented) sub-items. Checkboxes are clickable and toggle directly in Markdown. Body nodes dynamically resize to fit their text.
 
-見出し下のリスト項目（`- [ ]`, `- [x]`, `- item`）はツリー内の**本文ノード**として表示されます。チェックボックスはクリックで切り替え可能で、Markdown本文に直接反映されます。本文ノードはテキスト量に応じて動的にサイズ調整されます。
+見出し下のリスト項目（`- [ ]`, `- [x]`, `- item`）は、ネスト（インデント）した子項目も含めてツリー内の**本文ノード**として表示されます。チェックボックスはクリックで切り替え可能で、Markdown本文に直接反映されます。本文ノードはテキスト量に応じて動的にサイズ調整されます。
+
+### 🔁 Heading ⇄ Body Item Conversion / 見出し⇄本文項目の変換
+Right-click a top-level body item to **promote** it into a heading node, or right-click a leaf heading to **demote** it into a body item. Both are undoable.
+
+トップレベルの本文項目を右クリックして見出しノードへ**昇格**、子見出しを持たない見出しを右クリックして本文項目へ**降格**できます。どちらも `Ctrl+Z` で元に戻せます。
+
+### ↔️ Left / Right Layout / 左右展開レイアウト
+Drag a top-level (H1-child) node onto the left or right half of the root to lay out branches on both sides. The side assignment is persisted to frontmatter.
+
+ルート直下ノードをルートの左半分／右半分にドラッグ＆ドロップすることで、枝を左右両側に振り分けて配置できます。左右の割り当てはフロントマターに保存されます。
+
+### 🅱️ Inline Emphasis / インライン強調表示
+`**bold**`, `*italic*`, and `***both***` in labels render as styled text. Toggle emphasis on the selected node(s) with the toolbar buttons or `Ctrl+B` / `Ctrl+I`.
+
+ラベル内の `**太字**`・`*斜体*`・`***太字斜体***` が装飾表示されます。ツールバーのボタンまたは `Ctrl+B` / `Ctrl+I` で選択中のノードに強調のオン／オフを切り替えられます。
+
+### ☑️ Checkbox Progress & Filter / チェックボックス進捗・フィルタ
+A progress widget shows the completed / total checkbox count. The toolbar filter (**All / ✓ On only / ▢ Off only**) narrows which top-level checkbox items are shown — display only, the Markdown is never changed.
+
+進捗ウィジェットがチェックボックスの完了数／総数を表示します。ツールバーのフィルタ（**すべて／✓ ONのみ／▢ OFFのみ**）でトップレベルのチェックボックス項目の表示を絞り込めます（表示のみで、Markdownは変更されません）。
 
 ### ☑️ Multi-Selection / 複数選択
-`Ctrl+Click` to select multiple nodes. Cut, copy, paste, move, and delete operations all work on the entire selection at once.
+`Ctrl+Click` sibling nodes to select several at once. Cut, copy, paste, move, delete, heading⇄body conversion, and checkbox toggling all work on the entire selection.
 
-`Ctrl+クリック`で複数のノードを選択できます。カット・コピー・ペースト・移動・削除がまとめて実行できます。
+`Ctrl+クリック`で兄弟ノードを複数選択できます。カット・コピー・ペースト・移動・削除・見出し⇄本文変換・チェックボックス切替がまとめて実行できます。
+
+### 🔄 Auto-Follow & Conflict Detection / 自動追従・競合検知
+The viewer automatically follows the active Markdown editor as you switch files. Concurrent edits made in the text editor and the mind map are detected and merged without losing changes (lost-update prevention).
+
+ファイルを切り替えると、ビューアがアクティブなMarkdownエディタに自動追従します。テキストエディタとマインドマップの同時編集は検知され、変更を失わずにマージされます（Lost Update 防止）。
 
 ### ⌨️ Full Keyboard Support / キーボード操作
 
@@ -45,9 +70,10 @@ List items (`- [ ]`, `- [x]`, `- item`) under a heading are rendered as **body n
 | `Tab` | Add child node | 子ノード追加 |
 | `Enter` | Add sibling node | 兄弟ノード追加 |
 | `Delete` | Delete node | ノード削除 |
-| `Alt+↑` / `Alt+↓` | Move node up / down | ノードを上下に移動 |
+| `Alt+↑` / `Alt+↓` | Move node / body item up / down | ノード・本文項目を上下に移動 |
 | Arrow keys | Navigate nodes | ノード間の移動 |
-| `Ctrl+Click` | Multi-select nodes | 複数ノードを選択 |
+| `Ctrl+B` / `Ctrl+I` | Toggle bold / italic | 太字／斜体の切り替え |
+| `Ctrl+Click` | Multi-select sibling nodes | 兄弟ノードを複数選択 |
 | `Ctrl+Z` | Undo (50 steps) | 元に戻す（50ステップ） |
 | `Ctrl+C` / `Ctrl+V` | Copy / Paste node (with subtree) | コピー／貼り付け（サブツリーごと） |
 | `Ctrl+X` | Cut node (with subtree) | カット（サブツリーごと） |
@@ -60,9 +86,9 @@ Drag the background to pan. Mouse wheel to zoom (centered on cursor). Toolbar bu
 背景をドラッグしてパン操作、マウスホイールでズーム（カーソル中心）できます。ツールバーのボタンからもズームイン／アウト・フィットビューが使えます。
 
 ### 💾 State Persistence / 状態の保持
-Collapse/expand state is saved to Markdown frontmatter and restored on next open.
+Collapse/expand state (for both headings and body items) and left/right layout are saved to Markdown frontmatter and restored on next open. The original EOL (CRLF/LF) of the file is preserved.
 
-ノードの折りたたみ／展開状態はMarkdownのフロントマターに保存され、次回オープン時に復元されます。
+見出し・本文項目の折りたたみ／展開状態と左右レイアウトはMarkdownのフロントマターに保存され、次回オープン時に復元されます。ファイル元の改行コード（CRLF/LF）も保持されます。
 
 ---
 
@@ -132,15 +158,23 @@ This paragraph is preserved but not shown in the mind map.
 
 ### Frontmatter / フロントマター
 
-Collapse/expand state for nodes is automatically saved to the file's YAML frontmatter. You do not need to edit it manually.
+Collapse/expand state and left/right layout are automatically saved to the file's YAML frontmatter using dedicated, namespaced keys. You do not need to edit them manually, and your own frontmatter keys are left untouched.
 
-ノードの折りたたみ／展開状態は、ファイルのYAMLフロントマターに自動的に保存されます。手動で編集する必要はありません。
+折りたたみ／展開状態と左右レイアウトは、専用の名前空間付きキーでファイルのYAMLフロントマターに自動保存されます。手動で編集する必要はなく、ユーザー独自のフロントマターキーは保持されます。
+
+| Key | Purpose | 用途 |
+|-----|---------|------|
+| `mindmap-collapse` | Collapsed heading nodes | 折りたたんだ見出しノード |
+| `body-item-collapse` | Collapsed body-item groups | 折りたたんだ本文項目グループ |
+| `mindmap-left` | Nodes placed on the left side | 左側に配置したノード |
 
 ```markdown
 ---
-collapsed:
-  - Development/Backend
-  - Planning/Design
+mindmap-collapse:
+  - "Development/Backend"
+  - "Planning/Design"
+mindmap-left:
+  - "Planning"
 ---
 
 # Project Title
@@ -159,9 +193,15 @@ collapsed:
 
 ## Extension Settings / 拡張機能の設定
 
-No configuration required. Works out of the box.
+Works out of the box — all settings are optional.
 
-設定不要です。インストール後すぐに使用できます。
+追加設定なしで動作します。以下の設定はすべて任意です。
+
+| Setting | Default | Description | 説明 |
+|---------|---------|-------------|------|
+| `mindmap.followActiveEditor` | `true` | Auto-follow the active Markdown editor when switching files | ファイル切替時にアクティブなMarkdownエディタへ自動追従する |
+| `mindmap.fontSize` | `14` | Font size (px) for mind map nodes (8–32) | ノードのフォントサイズ（px、8〜32） |
+| `mindmap.edgeWidth` | `1.5` | Connection line width (px) (0.5–8) | ノード間接続線の太さ（px、0.5〜8） |
 
 ---
 
@@ -175,67 +215,24 @@ No configuration required. Works out of the box.
 
 ## Release Notes / リリースノート
 
-See [CHANGELOG](changelog.md) for full release history. / 全リリース履歴は [CHANGELOG](changelog.md) を参照してください。
+See [CHANGELOG](changelog.md) for the full release history. / 全リリース履歴は [CHANGELOG](changelog.md) を参照してください。
 
-### 2.6.1
-- Marketplace category narrowed to Visualization / Marketplaceカテゴリをvisualizationに絞り込み
+### 2.21.x
+- Fixed undo for single heading⇄body promote/demote; move body items with `Alt+↑/↓` and the context menu / 見出し⇄本文の単独昇格・降格の Undo を修正、本文項目を `Alt+↑/↓`・右クリックで上下移動
 
-### 2.6.0
-- Active editor tracking: the mind map viewer automatically follows when you switch files / アクティブエディタ切替時にビューアが自動追従するよう対応
+### 2.20.x – 2.18.x
+- Inline bold / italic display and `Ctrl+B` / `Ctrl+I` toggle / インライン太字・斜体表示と `Ctrl+B` / `Ctrl+I` トグル
+- Heading ⇄ body item promote / demote / 見出し⇄本文項目の昇格・降格
+- Explicit checkbox ⇄ bullet type switching (auto-conversion removed) / チェックボックス⇄箇条書きの明示切替（自動変換は廃止）
 
-### 2.5.0
-- New body items automatically receive a checkbox (`- [ ]`) / 新規追加した本文項目にチェックボックスを自動付与
+### 2.8.0
+- Left / right expansion layout with `mindmap-left` frontmatter persistence / 左右展開レイアウト（`mindmap-left` フロントマターで永続化）
 
-### 2.4.0
-- Lost-update prevention: concurrent edits in the text editor and mind map are detected and merged without data loss / テキストエディタとマインドマップの同時編集を検知し、変更を消失させずにマージするコンフリクト検知を追加
+### 2.4.0 – 2.6.0
+- Lost-update prevention (conflict detection) and active-editor auto-follow / Lost Update 防止（競合検知）とアクティブエディタ自動追従
 
-### 2.3.8
-- Fixed silent-drop bug in `editBody` / `renameNode` paths by unifying through `structuralEdit` / editBody・renameNode経路のサイレントドロップをstructuralEdit統一で根本修正
-
-### 2.3.7
-- Fixed body item and child item drag-and-drop not reflecting in Markdown / 本文項目・子項目のD&Dがmdに反映されないバグを修正
-
-### 2.3.6
-- Fixed data-drift in the `lineIdx` model after `editBody` by unifying re-sync; added unit tests for body item parsing / editBody後の再同期統一によるlineIdxモデルのデータ乖離防止、本文パースのユニットテスト追加
-
-### 2.3.5
-- Protected root node from inline editing; enlarged drag-and-drop hit area / ルートノードのインライン編集を保護、D&Dヒットエリアを拡大
-
-### 2.3.4
-- Fixed round-trip idempotency (extra blank lines on save) and collapse-state loss on rename / 保存ごとに空行が増えるround-trip問題と、リネーム時の折りたたみ状態消失を修正
-
-### 2.3.3
-- Version bump for Marketplace re-publish (no behavior change) / Marketplace再公開用バージョンバンプ（挙動変更なし）
-
-### 2.3.2
-- Internal maintenance update / 内部メンテナンスアップデート
-
-### 2.3.1
-- Icon image updated / アイコン画像を更新
-
-### 2.3.0
-- Dynamic node sizing and 2-line display for body items / 本文ノードの動的サイズ調整と2行表示に対応
-
-### 2.2.0
-- Multi-selection with `Ctrl+Click` / `Ctrl+クリック`による複数選択機能
-- Cut (`Ctrl+X`), copy, paste, move, and delete for multi-selection / 複数選択状態でのカット・コピー・ペースト・移動・削除に対応
-
-### 2.0.1
-- README updated to support both English and Japanese / READMEを英日バイリンガル対応に更新
-
-### 2.0.0
-- Body item drag & drop now moves the full subtree together / 本文アイテムのドラッグ＆ドロップでサブツリーごと移動可能に
-- Copy/Paste support (`Ctrl+C` / `Ctrl+V`) for nodes with subtrees / サブツリーを含むノードのコピー／貼り付けをサポート
-
-### 1.9.0 – 1.7.0
-- Body list items rendered as interactive nodes in the tree
-- Checkbox toggle, inline editing, and delete for body items
-- Collapse/expand body item groups
-
-### 1.5.0
-- Auto-save on every edit
-- Undo stack (50 steps, `Ctrl+Z`)
-- Save indicator in toolbar
+### 2.0.0 – 2.3.x
+- Body items as interactive nodes, multi-selection (`Ctrl+Click`), subtree copy/paste, dynamic node sizing / 本文項目のノード化、複数選択、サブツリーのコピー／貼り付け、動的ノードサイズ
 
 ---
 
