@@ -20,10 +20,6 @@
   const V_GAP         = 16;    // vertical gap between heading siblings
   const PAD           = 60;
   const MAX_UNDO      = 50;
-  // Default placeholder label for a newly added heading node. Adding a node is
-  // provisional (viewer-only) until a valid label is committed (R-04-05):
-  // committing this default (or an empty string) cancels the add entirely.
-  const NEW_NODE_TEXT = '新しいノード';
   // Width occupied by the collapse toggle (▼/▶) incl. its flex gap.
   // Body items with children render this button, so their width must account for it.
   const TOGGLE_W      = 19;
@@ -159,10 +155,6 @@
   let contextTarget = null;
   let contextBodyItem = null;
   let _pendingEditId = null;
-  // id of a provisional (viewer-only, not yet written to Markdown) newly added
-  // heading node awaiting its first valid label (R-04-05). Cleared on commit
-  // or add-cancel.
-  let _newNodeId = null;
   let _pendingBodyEdit = null;     // { parentId, lineIdx }
   let checkboxFilter = 'all'; // 'all' | 'checked' | 'unchecked'
   let selectedBodyItemKey = null;  // `${parentNodeId}:${lineIdx}`
@@ -1713,15 +1705,13 @@
         if (lbl) beginEdit(node, nodeEl, lbl);
         return;
       }
-      const newNode = makeNode(NEW_NODE_TEXT, node.level);
+      const newNode = makeNode('新しいノード', node.level);
       const idx = parent.children.indexOf(node);
       pushUndo();
       parent.children.splice(idx + 1, 0, newNode);
       selectedId = newNode.id;
       _pendingEditId = newNode.id;
-      // Provisional add (R-04-05): do NOT write to Markdown yet; the node lives
-      // only in the viewer until a valid label is committed in beginEdit.
-      _newNodeId = newNode.id;
+      postStructuralEdit();
       render();
       return;
     }
@@ -1731,14 +1721,13 @@
       e.preventDefault();
       const node = findById(root, selectedId);
       if (!node || node.level >= 6) return;
-      const newNode = makeNode(NEW_NODE_TEXT, node.level + 1);
+      const newNode = makeNode('新しいノード', node.level + 1);
       pushUndo();
       node.children.push(newNode);
       node.collapsed = false;
       selectedId = newNode.id;
       _pendingEditId = newNode.id;
-      // Provisional add (R-04-05): defer Markdown write until commit.
-      _newNodeId = newNode.id;
+      postStructuralEdit();
       render();
       return;
     }
@@ -1854,26 +1843,11 @@
 
   // ─── Heading Inline Editing ───────────────────────────────────────────────
 
-  // Remove a provisional (viewer-only) newly added node from its parent and
-  // discard the add snapshot that pushUndo() left on the stack, so cancelling
-  // an add leaves no trace in the tree, Markdown, or Undo history (R-04-05).
-  function cancelProvisionalAdd(node) {
-    const parent = root ? findParent(root, node) : null;
-    if (parent) {
-      const idx = parent.children.indexOf(node);
-      if (idx !== -1) parent.children.splice(idx, 1);
-    }
-    undoStack.pop();
-    _newNodeId = null;
-  }
-
   function beginEdit(node, div, label) {
     if (editingId) return;
     // Root node corresponds to the file name and must not be renamed inline.
     // This is the single choke point for dblclick / F2 / Enter-fallback edits.
     if (root && node.id === root.id) return;
-    // Is this the inline edit for a provisional newly added node? (R-04-05)
-    const isNewNodeEdit = (node.id === _newNodeId);
     editingId = node.id;
     selectedId = node.id;
 
@@ -1890,19 +1864,7 @@
       const trimmed = input.value.trim();
       editingId = null;
       div.classList.remove('editing');
-      if (isNewNodeEdit) {
-        // A provisional add is only confirmed when a valid label (non-empty and
-        // not the default placeholder) is committed. Otherwise the add itself is
-        // cancelled: nothing is written to the tree or Markdown (R-04-05).
-        if (!trimmed || trimmed === NEW_NODE_TEXT) {
-          cancelProvisionalAdd(node);
-        } else {
-          _newNodeId = null;
-          node.text = trimmed;
-          // First Markdown write for this node happens here (add + label commit).
-          postStructuralEdit();
-        }
-      } else if (trimmed && trimmed !== node.text) {
+      if (trimmed && trimmed !== node.text) {
         pushUndo();
         node.text = trimmed;
         // Send the whole tree (structuralEdit) instead of a single-node
@@ -1915,14 +1877,7 @@
       render();
       applyPendingUpdate();
     };
-    const cancel = () => {
-      editingId = null;
-      // Escape on a provisional add cancels the add entirely (R-04-05); on an
-      // existing node it simply restores the original text (R-03-03).
-      if (isNewNodeEdit) cancelProvisionalAdd(node);
-      render();
-      applyPendingUpdate();
-    };
+    const cancel = () => { editingId = null; render(); applyPendingUpdate(); };
 
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (e) => {
@@ -2141,24 +2096,20 @@
     switch (action) {
       case 'add-child': {
         if (!contextTarget || contextTarget.level >= 6) return;
-        const newNode = makeNode(NEW_NODE_TEXT, contextTarget.level + 1);
+        const newNode = makeNode('新しいノード', contextTarget.level + 1);
         pushUndo(); contextTarget.children.push(newNode); contextTarget.collapsed = false;
         selectedId = newNode.id; _pendingEditId = newNode.id;
-        // Provisional add (R-04-05): defer Markdown write until commit.
-        _newNodeId = newNode.id;
-        render(); break;
+        postStructuralEdit(); render(); break;
       }
       case 'add-sibling': {
         if (!contextTarget || !root) return;
         const parent = findParent(root, contextTarget);
         if (!parent) return;
-        const newNode = makeNode(NEW_NODE_TEXT, contextTarget.level);
+        const newNode = makeNode('新しいノード', contextTarget.level);
         const idx = parent.children.indexOf(contextTarget);
         pushUndo(); parent.children.splice(idx + 1, 0, newNode);
         selectedId = newNode.id; _pendingEditId = newNode.id;
-        // Provisional add (R-04-05): defer Markdown write until commit.
-        _newNodeId = newNode.id;
-        render(); break;
+        postStructuralEdit(); render(); break;
       }
       case 'add-body':          { if (contextTarget && (!root || contextTarget.id !== root.id)) addBodyItem(contextTarget, null, 0); break; }
       case 'move-up':           { if (contextTarget) moveNode(contextTarget, -1); break; }
