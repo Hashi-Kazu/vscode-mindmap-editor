@@ -197,6 +197,9 @@ test('performUndo が editingId/bodyEditing を解除する', () => {
     let selectedBodyItemKeys = new Set(['k']);
     let selectedBodyItemsData = new Map([['k', {}]]);
     let undoStack = [{ id: 'previous' }];
+    let redoStack = [];
+    const MAX_UNDO = 50;
+    function cloneForUndo(n) { return { id: n.id }; }
     function render() {}
     function postStructuralEdit() {}
     function postBodyItemCollapseState() {}
