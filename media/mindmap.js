@@ -1945,9 +1945,12 @@
   function toggleBodyItemCheckbox(parentNode, lineIdx, checked) {
     const lines = (parentNode.body || '').split('\n');
     if (lineIdx < 0 || lineIdx >= lines.length) return;
+    // Snapshot BEFORE mutating so Ctrl+Z restores the pre-toggle state
+    // (R-10-02 / R-14-06). pushUndo captures the current root, so it must run
+    // before parentNode.body is reassigned.
+    pushUndo();
     lines[lineIdx] = lines[lineIdx].replace(/\[[ xX]\]/i, checked ? '[x]' : '[ ]');
     parentNode.body = lines.join('\n');
-    pushUndo();
     postStructuralEdit();
     render();
   }
@@ -1958,8 +1961,10 @@
     const item = findBodyItemByLineIdx(tree, lineIdx);
     if (!item) return;
     const targetType = item.type === 'checkbox' ? 'bullet' : 'checkbox';
-    parentNode.body = toggleBodyItemType(parentNode.body, lineIdx, targetType);
+    // Snapshot BEFORE mutating (R-10-02 / R-14-06) so Ctrl+Z restores the
+    // pre-toggle type.
     pushUndo();
+    parentNode.body = toggleBodyItemType(parentNode.body, lineIdx, targetType);
     postStructuralEdit();
     render();
   }
@@ -1982,9 +1987,12 @@
       const items = getBodyItems(parentNode.body);
       insertAt = items.length > 0 ? items[items.length - 1].lineIdx + 1 : lines.length;
     }
+    // Snapshot BEFORE inserting the new line (R-10-02 / R-14-06) so Ctrl+Z
+    // restores the pre-add state (the new item absent) and Ctrl+Y re-adds it.
+    // pushUndo captures the current root, so it must run before the mutation.
+    pushUndo();
     lines.splice(insertAt, 0, newLine);
     parentNode.body = lines.join('\n');
-    pushUndo();
     parentNode.collapsed = false;
     // Hold the editing guard across the structuralEdit round-trip: the new item's
     // inline input opens asynchronously in render()'s requestAnimationFrame,
