@@ -651,7 +651,8 @@ export class MindMapPanel {
       <tr><td>Tab</td><td>子ノードを追加</td></tr>
       <tr><td>Del</td><td>ノードを削除</td></tr>
       <tr><td>Alt+↑/↓</td><td>兄弟間の上下入れ替え</td></tr>
-      <tr><td>Ctrl+Z</td><td>元に戻す</td></tr>
+      <tr><td>Ctrl+Z</td><td>元に戻す（Undo）</td></tr>
+      <tr><td>Ctrl+Y / Ctrl+Shift+Z</td><td>やり直し（Redo）</td></tr>
       <tr><td>Ctrl+C</td><td>コピー（複数選択対応）</td></tr>
       <tr><td>Ctrl+X</td><td>カット（複数選択対応）</td></tr>
       <tr><td>Ctrl+V</td><td>子階層にペースト</td></tr>
