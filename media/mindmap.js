@@ -20,6 +20,10 @@
   const V_GAP         = 16;    // vertical gap between heading siblings
   const PAD           = 60;
   const MAX_UNDO      = 50;
+  // Default placeholder text for a newly added body item, mirroring the node
+  // add default ('新しいノード'): the new item's inline edit opens with this
+  // text selected so it is replaced on the first keystroke (R-13-18).
+  const NEW_BODY_TEXT = '新しい本文';
   // Width occupied by the collapse toggle (▼/▶) incl. its flex gap.
   // Body items with children render this button, so their width must account for it.
   const TOGGLE_W      = 19;
@@ -1969,7 +1973,7 @@
     indent = indent || 0;
     const lines = (parentNode.body || '').split('\n');
     const indStr = ' '.repeat(indent);
-    const newLine = `${indStr}- `;
+    const newLine = `${indStr}- ${NEW_BODY_TEXT}`;
 
     let insertAt;
     if (afterLineIdx !== undefined && afterLineIdx !== null) {
