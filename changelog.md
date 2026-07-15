@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.22.4] - 2026-07-15
+
+### Fixed
+- 本文項目に子項目を追加すると、既存の子項目の**先頭**に挿入され、下の階層の1番上に追加される不具合を修正（Issue #46 / R-15-03・R-15-04）。
+  - Webview（`media/mindmap.js`）の「Tab キーで子項目を追加」および右クリックメニュー「子項目を追加」（`body-add-child`）が、親本文項目自身の `lineIdx` を挿入基準として渡していたため、`addBodyItem` が親行の直後（＝既存の子サブツリーの手前）に挿入していた。
+  - 兄弟追加（`body-add-sibling`）と同様に `getBodyItemTree` / `findBodyItemByLineIdx` / `bodyItemLastLineIdx` で親サブツリーの末尾行を求め、その直後へ挿入するよう変更。これにより新しい子項目が既存の子項目の**末尾**（下の階層の1番下）に追加される。
+
 ## [2.21.4] - 2026-07-13
 
 ### Fixed
