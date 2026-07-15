@@ -1676,12 +1676,15 @@
       }
     }
 
-    // Tab: add child body item
+    // Tab: add child body item (appended after any existing children — Issue #46)
     if (e.key === 'Tab' && !e.shiftKey && selectedBodyItemData) {
       e.preventDefault();
       const { parentNode, lineIdx, indent } = selectedBodyItemData;
       if (parentNode.collapsedBodyLines?.delete(lineIdx)) postBodyItemCollapseState();
-      addBodyItem(parentNode, lineIdx, indent + 2);
+      const tree = getBodyItemTree(parentNode.body);
+      const item = findBodyItemByLineIdx(tree, lineIdx);
+      const lastLine = item ? bodyItemLastLineIdx(item) : lineIdx;
+      addBodyItem(parentNode, lastLine, indent + 2);
       return;
     }
 
@@ -2160,7 +2163,12 @@
       case 'body-add-child': {
         if (!contextBodyItem) return;
         if (contextBodyItem.parentNode.collapsedBodyLines?.delete(contextBodyItem.item.lineIdx)) postBodyItemCollapseState();
-        addBodyItem(contextBodyItem.parentNode, contextBodyItem.item.lineIdx, contextBodyItem.item.indent + 2);
+        // Append after any existing children so the new item lands at the
+        // bottom of the sub-hierarchy, not the top (Issue #46).
+        const tree = getBodyItemTree(contextBodyItem.parentNode.body);
+        const it = findBodyItemByLineIdx(tree, contextBodyItem.item.lineIdx);
+        const last = it ? bodyItemLastLineIdx(it) : contextBodyItem.item.lineIdx;
+        addBodyItem(contextBodyItem.parentNode, last, contextBodyItem.item.indent + 2);
         break;
       }
       case 'body-add-sibling': {

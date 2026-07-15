@@ -295,6 +295,42 @@ test('R-10-04: cloneForUndo copies collapsedBodyLines as a new Set', () => {
   assert.notEqual(cloned.collapsedBodyLines, original.collapsedBodyLines);
 });
 
+test('R-15-03/R-15-04: add-child body item is appended after existing children (Issue #46)', () => {
+  const helpers = new Function(`
+    const BODY_H = 20;
+    ${extractFunction('getBodyItems')}
+    ${extractFunction('getBodyItemTree')}
+    ${extractFunction('bodyItemLastLineIdx')}
+    ${extractFunction('findBodyItemByLineIdx')}
+    return { getBodyItemTree, findBodyItemByLineIdx, bodyItemLastLineIdx };
+  `)() as {
+    getBodyItemTree: (body: string) => { lineIdx: number }[];
+    findBodyItemByLineIdx: (tree: unknown, lineIdx: number) => { lineIdx: number } | null;
+    bodyItemLastLineIdx: (item: unknown) => number;
+  };
+  // parent (line 0) already has two children (lines 1,2) and a following sibling (line 3)
+  const body = '- parent\n  - childA\n  - childB\n- sibling';
+  const tree = helpers.getBodyItemTree(body);
+  const parent = helpers.findBodyItemByLineIdx(tree, 0);
+  assert.ok(parent);
+  const last = helpers.bodyItemLastLineIdx(parent);
+  // last line of parent's subtree is childB (line 2); addBodyItem inserts at last+1,
+  // i.e. after childB and before the sibling — the bottom of the sub-hierarchy.
+  assert.equal(last, 2);
+
+  // Both call sites must compute the parent's subtree tail rather than passing the
+  // parent's own lineIdx (which would insert at the top).
+  const tabBlock = extractBlockAfter('// Tab: add child body item');
+  assert.ok(tabBlock.includes('bodyItemLastLineIdx'),
+    'Tab add-child must append after the existing children');
+  const handlerSrc = extractFunction('handleContextAction');
+  const addChildIdx = handlerSrc.indexOf("case 'body-add-child'");
+  assert.ok(addChildIdx >= 0);
+  const addChildBlock = handlerSrc.slice(addChildIdx, handlerSrc.indexOf("case 'body-add-sibling'"));
+  assert.ok(addChildBlock.includes('bodyItemLastLineIdx'),
+    'body-add-child must append after the existing children');
+});
+
 test('R-13-13: root add-body is disabled in context menu and guarded in handler', () => {
   const menuSrc = extractFunction('showHeadingContextMenu');
   const handlerSrc = extractFunction('handleContextAction');
