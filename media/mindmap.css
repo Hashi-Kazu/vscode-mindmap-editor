@@ -14,6 +14,10 @@
   --error: var(--vscode-errorForeground, #f48771);
   --root-outline: var(--vscode-charts-purple, #c586c0);
   --root-selection: var(--vscode-focusBorder, #007fd4);
+  --task-accent: var(--vscode-charts-blue, #3794ff);
+  --task-bg: var(--vscode-inputValidation-infoBackground, rgba(55, 148, 255, 0.12));
+  --task-done-accent: var(--vscode-charts-green, #89d185);
+  --task-done-bg: var(--vscode-diffEditor-insertedTextBackground, rgba(137, 209, 133, 0.12));
 }
 
 body.vscode-light {
@@ -485,6 +489,29 @@ body {
 
 .body-node.checked {
   opacity: 0.75;
+}
+
+/* Checkbox (task) body items: visually distinct from bullet items via left accent + tinted bg */
+.body-node.body-node-task {
+  background: var(--task-bg);
+  box-shadow: inset 3px 0 0 var(--task-accent);
+}
+
+.body-node.body-node-task:hover {
+  background: var(--hover-bg);
+}
+
+.body-node.body-node-task.selected {
+  box-shadow: inset 3px 0 0 var(--task-accent), 0 0 0 1px var(--focus);
+}
+
+.body-node.body-node-task.checked {
+  background: var(--task-done-bg);
+  box-shadow: inset 3px 0 0 var(--task-done-accent);
+}
+
+.body-node.body-node-task.checked.selected {
+  box-shadow: inset 3px 0 0 var(--task-done-accent), 0 0 0 1px var(--focus);
 }
 
 .body-node-checkbox {

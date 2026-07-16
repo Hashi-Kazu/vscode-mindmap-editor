@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.22.5] - 2026-07-17
+
+### Added
+- チェックボックス付き本文項目を箇条書き項目・見出しノードと区別しやすいデザインに変更（R-13-03）。
+  - 未チェック: 左端に青系アクセントの縦線＋薄い青背景（`--task-accent` / `--task-bg`）。
+  - チェック済み: 左端に緑系アクセントの縦線＋薄い緑背景（`--task-done-accent` / `--task-done-bg`、既存の取り消し線・半透明化はそのまま維持）。
+  - いずれもVS Codeテーマ変数（`inputValidation.infoBackground` / `diffEditor.insertedTextBackground` / `charts.blue` / `charts.green`）ベースで、ライト/ダーク/ハイコントラストテーマに自動追随する。
+
 ## [2.22.4] - 2026-07-15
 
 ### Fixed

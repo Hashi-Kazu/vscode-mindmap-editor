@@ -1228,7 +1228,10 @@
     const isNested = depth > 0;
 
     const div = document.createElement('div');
-    div.className = 'node body-node' + (isNested ? ' body-node-nested' : '') + (item.checked ? ' checked' : '');
+    div.className = 'node body-node'
+      + (isNested ? ' body-node-nested' : '')
+      + (item.type === 'checkbox' ? ' body-node-task' : '')
+      + (item.checked ? ' checked' : '');
     div.dataset.bodyKey = key;
     div.style.left   = item._x + 'px';
     div.style.top    = item._y + 'px';
