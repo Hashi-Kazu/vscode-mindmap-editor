@@ -127,9 +127,12 @@
 
   // ─── Inline Markdown rendering (R-21) ──────────────────────────────────────
   // Escapes HTML special characters, then decorates **bold**/*italic*/
-  // ***bold+italic*** (and the underscore equivalents) as <strong>/<em> for
-  // node/body-item label display only. Inline edit inputs always show the
-  // raw Markdown text unchanged (see beginEdit / beginBodyItemEdit).
+  // ***bold+italic*** (asterisk notation only) as <strong>/<em> for
+  // node/body-item label display only. Underscore notation (_a_ / __a__ /
+  // ___a___) is intentionally NOT decorated, so common text such as
+  // `__init__` or `file_name` is displayed verbatim. Inline edit inputs
+  // always show the raw Markdown text unchanged (see beginEdit /
+  // beginBodyItemEdit).
 
   function escapeHtml(text) {
     return String(text)
@@ -140,11 +143,8 @@
   function renderInlineMarkdown(text) {
     let html = escapeHtml(text || '');
     html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
     return html;
   }
 
@@ -156,9 +156,9 @@
     while (inner && changed) {
       changed = false;
       for (const [marker, hasBold, hasItalic] of [
-        ['***', true, true], ['___', true, true],
-        ['**', true, false], ['__', true, false],
-        ['*', false, true], ['_', false, true],
+        ['***', true, true],
+        ['**', true, false],
+        ['*', false, true],
       ]) {
         if (inner.length > marker.length * 2 && inner.startsWith(marker) && inner.endsWith(marker)) {
           inner = inner.slice(marker.length, -marker.length).trim();
@@ -1210,6 +1210,9 @@
         selectedBodyItemKey = null;
         selectedBodyItemData = null;
       }
+      // These branches patch selection in-place without a full render(), so
+      // sync the toolbar bold/italic state to the new selection (R-21).
+      updateEmphasisButtons();
     });
     div.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -1338,6 +1341,9 @@
         selectedBodyItemKey = key;
         selectedBodyItemData = { parentNode, lineIdx: item.lineIdx, indent: item.indent };
       }
+      // Selection is patched in-place without render(); keep the toolbar
+      // bold/italic state in sync with the newly selected item (R-21).
+      updateEmphasisButtons();
     });
     div.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -3353,6 +3359,7 @@
     const el = document.querySelector(`.node[data-id="${node.id}"]`);
     if (el) el.classList.add('selected');
     scrollNodeIntoView(node);
+    updateEmphasisButtons();
   }
 
   /** Flat list of visible body items (respects collapsed) for keyboard navigation */
@@ -3420,6 +3427,7 @@
     selectedBodyItemsData.clear();
     const el = document.querySelector(`.body-node[data-body-key="${key2}"]`);
     if (el) el.classList.add('selected');
+    updateEmphasisButtons();
   }
 
   function navigateByKey(key) {
