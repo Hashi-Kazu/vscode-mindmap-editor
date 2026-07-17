@@ -3173,6 +3173,9 @@
       if (!node) return;
       // Paste as child of selected node (not sibling)
       if (node.level >= 6) return; // at H6 limit, cannot add child heading
+      // R-17-02: block pastes whose result (including the copied subtree depth)
+      // would produce a heading level beyond H6, mirroring the R-02-08 drop guard.
+      if (node.level + 1 + subtreeDepth(clipboard.node) > 6) return;
       const cloned = cloneWithNewIds(clipboard.node);
       // Adjust levels relative to child depth
       const targetChildLevel = node.level + 1;
@@ -3197,6 +3200,9 @@
       if (!node) return;
       // Paste multiple nodes as children of selected node
       if (node.level >= 6) return;
+      // R-17-02: block pastes whose result (including any copied subtree's depth)
+      // would produce a heading level beyond H6, mirroring the R-02-08 drop guard.
+      if (clipboard.nodes.some(srcNode => node.level + 1 + subtreeDepth(srcNode) > 6)) return;
       pushUndo();
       const targetChildLevel = node.level + 1;
       for (const srcNode of clipboard.nodes) {
