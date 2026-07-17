@@ -14,6 +14,9 @@
   --error: var(--vscode-errorForeground, #f48771);
   --root-outline: var(--vscode-charts-purple, #c586c0);
   --root-selection: var(--vscode-focusBorder, #007fd4);
+  /* Task (checkbox) accent colors. These defaults are the theme-based fallback;
+     on viewer startup media/mindmap.js (randomCheckboxColors) overrides them
+     with two randomly chosen, readability-constrained colors. */
   --task-accent: var(--vscode-charts-blue, #3794ff);
   --task-bg: var(--vscode-inputValidation-infoBackground, rgba(55, 148, 255, 0.12));
   --task-done-accent: var(--vscode-charts-green, #89d185);
