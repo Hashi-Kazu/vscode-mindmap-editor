@@ -35,6 +35,11 @@ const escapeHtml = new Function(`
   return escapeHtml;
 `)() as (text: string) => string;
 
+const parseEmphasis = new Function(`
+  ${extractWebviewFunction('parseEmphasis')}
+  return parseEmphasis;
+`)() as (text: string) => { bold: boolean; italic: boolean; inner: string };
+
 // ─── renderInlineMarkdown: emphasis decoration (R-21-01) ───────────────────
 
 test('renderInlineMarkdown decorates **bold** as <strong>', () => {
@@ -49,18 +54,35 @@ test('renderInlineMarkdown decorates ***both*** as <strong><em>', () => {
   assert.equal(renderInlineMarkdown('***both***'), '<strong><em>both</em></strong>');
 });
 
-test('renderInlineMarkdown decorates underscore variants __bold__ and _italic_', () => {
-  assert.equal(renderInlineMarkdown('__bold__'), '<strong>bold</strong>');
-  assert.equal(renderInlineMarkdown('_italic_'), '<em>italic</em>');
+test('renderInlineMarkdown leaves underscore variants __bold__ and _italic_ literal', () => {
+  // Underscore notation is intentionally not decorated (R-21) so common text
+  // such as `__init__` / `file_name` renders verbatim.
+  assert.equal(renderInlineMarkdown('__bold__'), '__bold__');
+  assert.equal(renderInlineMarkdown('_italic_'), '_italic_');
 });
 
-test('renderInlineMarkdown decorates ___both___ (underscore) as <strong><em>', () => {
-  assert.equal(renderInlineMarkdown('___both___'), '<strong><em>both</em></strong>');
+test('renderInlineMarkdown leaves ___both___ (underscore) literal', () => {
+  assert.equal(renderInlineMarkdown('___both___'), '___both___');
 });
 
 test('renderInlineMarkdown leaves an unclosed marker literal', () => {
   assert.equal(renderInlineMarkdown('*lonely'), '*lonely');
   assert.equal(renderInlineMarkdown('lonely_'), 'lonely_');
+});
+
+// ─── parseEmphasis: asterisk-only toggle recognition (R-21) ────────────────
+
+test('parseEmphasis recognizes asterisk emphasis markers', () => {
+  assert.deepEqual(parseEmphasis('**bold**'), { bold: true, italic: false, inner: 'bold' });
+  assert.deepEqual(parseEmphasis('*italic*'), { bold: false, italic: true, inner: 'italic' });
+  assert.deepEqual(parseEmphasis('***both***'), { bold: true, italic: true, inner: 'both' });
+});
+
+test('parseEmphasis does NOT treat underscores as emphasis', () => {
+  // `__init__` must stay intact — no bold/italic detected, inner unchanged.
+  assert.deepEqual(parseEmphasis('__init__'), { bold: false, italic: false, inner: '__init__' });
+  assert.deepEqual(parseEmphasis('_italic_'), { bold: false, italic: false, inner: '_italic_' });
+  assert.deepEqual(parseEmphasis('___both___'), { bold: false, italic: false, inner: '___both___' });
 });
 
 // ─── renderInlineMarkdown / escapeHtml: HTML injection safety (R-21-02) ────

@@ -42,9 +42,9 @@ Drag a top-level (H1-child) node onto the left or right half of the root to lay 
 ルート直下ノードをルートの左半分／右半分にドラッグ＆ドロップすることで、枝を左右両側に振り分けて配置できます。左右の割り当てはフロントマターに保存されます。
 
 ### 🅱️ Inline Emphasis / インライン強調表示
-`**bold**`, `*italic*`, and `***both***` in labels render as styled text. Toggle emphasis on the selected node(s) with the toolbar buttons or `Ctrl+B` / `Ctrl+I`.
+`**bold**`, `*italic*`, and `***both***` in labels render as styled text. Toggle emphasis on the selected node(s) with the toolbar buttons or `Ctrl+B` / `Ctrl+I`. Only asterisk notation is decorated — underscore notation (`_italic_`, `__bold__`) is left as-is, so text like `__init__` or `file_name` is shown verbatim.
 
-ラベル内の `**太字**`・`*斜体*`・`***太字斜体***` が装飾表示されます。ツールバーのボタンまたは `Ctrl+B` / `Ctrl+I` で選択中のノードに強調のオン／オフを切り替えられます。
+ラベル内の `**太字**`・`*斜体*`・`***太字斜体***` が装飾表示されます。ツールバーのボタンまたは `Ctrl+B` / `Ctrl+I` で選択中のノードに強調のオン／オフを切り替えられます。装飾されるのはアスタリスク記法のみで、アンダースコア記法（`_斜体_`・`__太字__`）はそのまま表示されるため、`__init__` や `file_name` などのテキストがそのまま表示されます。
 
 ### ☑️ Checkbox Progress & Filter / チェックボックス進捗・フィルタ
 A progress widget shows the completed / total checkbox count. The toolbar filter (**All / ✓ On only / ▢ Off only**) narrows which top-level checkbox items are shown — display only, the Markdown is never changed.
@@ -210,6 +210,7 @@ Works out of the box — all settings are optional.
 - Nodes deeper than H6 are not supported (Markdown limitation) / H6より深い階層のノードはサポートされません（Markdownの仕様による制限）
 - Very large Markdown files (1000+ headings) may render slowly / 非常に大きなMarkdownファイル（見出し1000個以上）は描画が遅くなる場合があります
 - ツールバーアイコンは16px表示のため細かいデザインは見えにくい場合がある
+- Underscore emphasis (`_italic_`, `__bold__`) is intentionally not rendered; use asterisks (`*italic*`, `**bold**`) instead / アンダースコアによる強調（`_斜体_`・`__太字__`）は意図的に装飾されません。アスタリスク（`*斜体*`・`**太字**`）を使用してください
 
 ---
 
