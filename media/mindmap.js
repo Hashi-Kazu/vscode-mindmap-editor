@@ -41,6 +41,47 @@
     return Math.sqrt(dx * dx + dy * dy);
   }
 
+  // ─── Checkbox body-node random accent colors ─────────────────────────────
+  // On viewer startup, the checkbox (task) body items get two randomly chosen
+  // accent colors — one for unchecked, one for checked — instead of the fixed
+  // blue/green pair. The random colors override the `--task-*` CSS variables
+  // (media/mindmap.css). To keep the node label readable regardless of the
+  // editor theme's text color, hues are constrained to a mid lightness range
+  // (visible on both light and dark backgrounds) and the tinted background is
+  // kept at a low alpha so text is never washed out. The two hues are also
+  // forced apart so unchecked/checked stay visually distinguishable.
+  function randomCheckboxColors() {
+    // Lightness kept in 45–60% (mid) → the solid accent line stays visible on
+    // both light and dark themes, and the low-alpha background never obscures
+    // the foreground text color.
+    const S_MIN = 55, S_MAX = 85;
+    const L_MIN = 45, L_MAX = 60;
+    const BG_ALPHA = 0.14;
+    const rand = (min, max) => min + Math.random() * (max - min);
+
+    const hue1 = Math.floor(Math.random() * 360);
+    // Second hue at least 60° away (either direction) so the two states differ.
+    const hue2 = Math.floor((hue1 + rand(60, 300)) % 360);
+
+    const make = (hue) => {
+      const s = Math.round(rand(S_MIN, S_MAX));
+      const l = Math.round(rand(L_MIN, L_MAX));
+      return {
+        accent: `hsl(${hue}, ${s}%, ${l}%)`,
+        bg: `hsla(${hue}, ${s}%, ${l}%, ${BG_ALPHA})`,
+      };
+    };
+
+    const unchecked = make(hue1);
+    const checked = make(hue2);
+    const root = document.documentElement.style;
+    root.setProperty('--task-accent', unchecked.accent);
+    root.setProperty('--task-bg', unchecked.bg);
+    root.setProperty('--task-done-accent', checked.accent);
+    root.setProperty('--task-done-bg', checked.bg);
+  }
+  randomCheckboxColors();
+
   // Text width measurement for dynamic node sizing
   let _measureCtx = null;
   function measureNodeW(text, isBody, hasToggle) {
