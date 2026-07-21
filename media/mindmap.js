@@ -750,15 +750,11 @@
     if (item.collapsed) return;
     let cy = topY;
     for (const child of item.children) {
+      child._w = child._w || measureNodeW(child.text, true, child.children.length > 0);
       const childX = direction === 'left'
-        ? x - BODY_ITEM_GAP - child._w  // temporarily measure child w
+        ? x - BODY_ITEM_GAP - child._w
         : x + item._w + BODY_ITEM_GAP;
-      // For left direction we'll recompute after measuring child width
-      assignBodyItemPositions(child, x + item._w + BODY_ITEM_GAP, cy, direction);
-      if (direction === 'left') {
-        // Re-place child to the left of item
-        child._x = x - BODY_ITEM_GAP - (child._w || BODY_MIN_W);
-      }
+      assignBodyItemPositions(child, childX, cy, direction);
       cy += child._sh + BODY_V_GAP;
     }
   }
