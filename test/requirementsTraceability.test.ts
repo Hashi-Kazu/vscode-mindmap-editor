@@ -44,7 +44,7 @@ test('USDM, acceptance target and package versions are aligned', () => {
     /^\*\*対象要求仕様書\*\*: MME-REQ-001-USDM \*\*v([\d.]+)\*\*/m
   )?.[1];
 
-  assert.equal(usdmVersion, '2.22.9');
+  assert.equal(usdmVersion, '2.22.10');
   assert.equal(acceptanceTargetVersion, usdmVersion);
   assert.equal(packageJson.version, usdmVersion);
   assert.equal(packageLock.version, usdmVersion);
