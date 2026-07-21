@@ -20,7 +20,7 @@ test('R-06-09: saveBodyItemCollapseState uses the operation and conflict guards'
   assert.match(block, /finally\s*{\s*this\.isOperating = false;/);
 });
 
-test('Issue#38: structuralEdit updates lastBodyItemCollapsePaths from the message', () => {
+test('R-15-05 / Issue#38: structuralEdit updates lastBodyItemCollapsePaths from the message', () => {
   const block = panelSource.match(
     /case 'structuralEdit':[\s\S]*?case 'saveCollapseState':/
   )?.[0];

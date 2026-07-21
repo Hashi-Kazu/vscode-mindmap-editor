@@ -22,6 +22,22 @@ function extractFunction(name: string): string {
   assert.fail(`function ${name} braces are unbalanced`);
 }
 
+function extractBlockAfter(marker: string): string {
+  const start = source.indexOf(marker);
+  assert.ok(start >= 0, `marker "${marker}" not found in media/mindmap.js`);
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return source.slice(bodyStart, i + 1);
+    }
+  }
+  assert.fail(`block after "${marker}" braces are unbalanced`);
+}
+
 interface TreeNode {
   id: string;
   text: string;
@@ -376,4 +392,69 @@ test('複数選択中の本文項目に対しチェックボックス切替ア�
 
   h.performUndo();
   assert.equal(h.root.children[0].body, '- item one\n- item two', 'undo restores both items at once');
+});
+
+test('R-18-12: Delete removes selected body items as one undoable operation', () => {
+  const keydownBlock = extractBlockAfter("document.addEventListener('keydown'");
+  const h = new Function(`
+    const BODY_H = 42;
+    let root = {
+      id: 'root', text: 'Root', level: 0, collapsed: false, body: '', children: [
+        { id: 'p', text: 'Parent', level: 1, collapsed: false,
+          body: '- first\\n- keep\\n- third', children: [], collapsedBodyLines: new Set() }
+      ]
+    };
+    const parent = root.children[0];
+    let selectedId = null, selectedIds = new Set();
+    let selectedBodyItemKey = 'p:0';
+    let selectedBodyItemData = { parentNode: parent, lineIdx: 0, indent: 0 };
+    let selectedBodyItemKeys = new Set(['p:0', 'p:2']);
+    let selectedBodyItemsData = new Map([
+      ['p:0', selectedBodyItemData],
+      ['p:2', { parentNode: parent, lineIdx: 2, indent: 0 }],
+    ]);
+    let editingId = null, bodyEditing = false;
+    let undoCount = 0, undoSnapshot = null, structuralCount = 0, renderCount = 0;
+    function pushUndo() { undoCount++; undoSnapshot = JSON.parse(JSON.stringify(root)); }
+    function postStructuralEdit() { structuralCount++; }
+    function render() { renderCount++; }
+    ${extractFunction('getBodyItems')}
+    ${extractFunction('getBodyItemTree')}
+    ${extractFunction('findBodyItemByLineIdx')}
+    ${extractFunction('bodyItemLastLineIdx')}
+    ${extractFunction('remapCollapsedBodyLinesAfterDelete')}
+    ${extractFunction('deleteBodyItemNoUndo')}
+    function handleKeydown(e) ${keydownBlock}
+    return {
+      deleteSelected() {
+        handleKeydown({ key: 'Delete', ctrlKey: false, metaKey: false, shiftKey: false,
+          altKey: false, preventDefault() {} });
+      },
+      get body() { return parent.body; },
+      get undoBody() { return undoSnapshot.children[0].body; },
+      get undoCount() { return undoCount; },
+      get structuralCount() { return structuralCount; },
+      get renderCount() { return renderCount; },
+      get selectionCleared() {
+        return selectedBodyItemKey === null && selectedBodyItemData === null
+          && selectedBodyItemKeys.size === 0 && selectedBodyItemsData.size === 0;
+      },
+    };
+  `)() as {
+    deleteSelected(): void;
+    readonly body: string;
+    readonly undoBody: string;
+    readonly undoCount: number;
+    readonly structuralCount: number;
+    readonly renderCount: number;
+    readonly selectionCleared: boolean;
+  };
+
+  h.deleteSelected();
+  assert.equal(h.body, '- keep', 'descending line deletion avoids index shifts');
+  assert.equal(h.undoBody, '- first\n- keep\n- third', 'one snapshot restores the complete pre-delete Markdown');
+  assert.equal(h.undoCount, 1, 'the batch records exactly one Undo operation');
+  assert.equal(h.structuralCount, 2, 'each removed body block is synchronized to Markdown');
+  assert.equal(h.renderCount, 1);
+  assert.equal(h.selectionCleared, true);
 });

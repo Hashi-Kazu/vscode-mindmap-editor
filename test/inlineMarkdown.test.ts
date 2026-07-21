@@ -21,6 +21,22 @@ function extractWebviewFunction(name: string): string {
   assert.fail(`function ${name} braces are unbalanced`);
 }
 
+function extractBlockAfter(marker: string): string {
+  const start = webviewSource.indexOf(marker);
+  assert.ok(start >= 0, `marker "${marker}" not found in media/mindmap.js`);
+  const bodyStart = webviewSource.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < webviewSource.length; i++) {
+    const ch = webviewSource[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return webviewSource.slice(bodyStart, i + 1);
+    }
+  }
+  assert.fail(`block after "${marker}" braces are unbalanced`);
+}
+
 // escapeHtml is a dependency of renderInlineMarkdown, so both are extracted
 // into the same sandbox and renderInlineMarkdown is what's exercised by most
 // tests (it always escapes first).
@@ -39,6 +55,12 @@ const parseEmphasis = new Function(`
   ${extractWebviewFunction('parseEmphasis')}
   return parseEmphasis;
 `)() as (text: string) => { bold: boolean; italic: boolean; inner: string };
+
+const toggleEmphasis = new Function(`
+  ${extractWebviewFunction('parseEmphasis')}
+  ${extractWebviewFunction('toggleEmphasis')}
+  return toggleEmphasis;
+`)() as (text: string, kind: 'bold' | 'italic', forceState?: boolean) => string;
 
 // ─── renderInlineMarkdown: emphasis decoration (R-21-01) ───────────────────
 
@@ -119,4 +141,114 @@ test('renderInlineMarkdown only decorates the marked-up portion of mixed text', 
 test('renderInlineMarkdown does not throw on empty string or undefined input', () => {
   assert.equal(renderInlineMarkdown(''), '');
   assert.equal(renderInlineMarkdown(undefined as unknown as string), '');
+});
+
+test('R-21-04: toolbar and guarded shortcuts toggle bold and italic', () => {
+  assert.equal(toggleEmphasis('plain', 'bold'), '**plain**');
+  assert.equal(toggleEmphasis('**plain**', 'bold'), 'plain');
+  assert.equal(toggleEmphasis('plain', 'italic'), '*plain*');
+  assert.equal(toggleEmphasis('*plain*', 'bold'), '***plain***');
+  assert.equal(toggleEmphasis('**plain**', 'italic'), '***plain***');
+  assert.equal(toggleEmphasis('***plain***', 'bold'), '*plain*');
+
+  assert.ok(webviewSource.includes("getElementById('btn-bold').addEventListener('click', () => applyEmphasisToSelection('bold'))"));
+  assert.ok(webviewSource.includes("getElementById('btn-italic').addEventListener('click', () => applyEmphasisToSelection('italic'))"));
+  const keydown = extractBlockAfter("document.addEventListener('keydown'");
+  const guardIdx = keydown.indexOf('if (editingId || bodyEditing) return;');
+  const boldIdx = keydown.indexOf("applyEmphasisToSelection('bold')");
+  const italicIdx = keydown.indexOf("applyEmphasisToSelection('italic')");
+  assert.ok(guardIdx >= 0 && boldIdx > guardIdx && italicIdx > guardIdx,
+    'Ctrl/Cmd+B and Ctrl/Cmd+I must stay behind the editing guard');
+});
+
+interface EmphasisSelectionHarness {
+  apply(kind: 'bold' | 'italic'): void;
+  readonly headings: Array<{ text: string }>;
+  readonly undoCount: number;
+  readonly structuralCount: number;
+}
+
+function makeEmphasisSelectionHarness(texts: string[]): EmphasisSelectionHarness {
+  return new Function(`
+    const headings = ${JSON.stringify(texts.map(text => ({ text })))};
+    let undoCount = 0, structuralCount = 0;
+    function getSelectionEmphasisTexts() { return { headings, bodyItems: [] }; }
+    function pushUndo() { undoCount++; }
+    function setBodyItemText() {}
+    function postStructuralEdit() { structuralCount++; }
+    function render() {}
+    ${extractWebviewFunction('parseEmphasis')}
+    ${extractWebviewFunction('toggleEmphasis')}
+    ${extractWebviewFunction('applyEmphasisToSelection')}
+    return {
+      apply(kind) { applyEmphasisToSelection(kind); },
+      get headings() { return headings; },
+      get undoCount() { return undoCount; },
+      get structuralCount() { return structuralCount; },
+    };
+  `)() as EmphasisSelectionHarness;
+}
+
+test('R-21-05: same-kind multi-selection applies or removes normalized asterisk emphasis', () => {
+  const allBold = makeEmphasisSelectionHarness(['**one**', '***two***']);
+  allBold.apply('bold');
+  assert.deepEqual(allBold.headings.map(node => node.text), ['one', '*two*'],
+    'when every label is bold, bold is removed from all labels');
+  assert.equal(allBold.undoCount, 1);
+  assert.equal(allBold.structuralCount, 1);
+
+  const mixed = makeEmphasisSelectionHarness(['plain', '**bold**', '__init__']);
+  mixed.apply('bold');
+  assert.deepEqual(mixed.headings.map(node => node.text), ['**plain**', '**bold**', '**__init__**'],
+    'mixed selection is uniformly applied and underscore text remains literal content');
+});
+
+test('R-21-06: body emphasis preserves indentation, bullet and checkbox state; blank labels are no-ops', () => {
+  const setBodyItemText = new Function(`
+    ${extractWebviewFunction('setBodyItemText')}
+    return setBodyItemText;
+  `)() as (parent: { body: string }, lineIdx: number, text: string, indent: number) => void;
+  const parent = { body: '  - nested\n    - [ ] todo\n    - [x] done' };
+
+  setBodyItemText(parent, 0, toggleEmphasis('nested', 'bold'), 2);
+  setBodyItemText(parent, 1, toggleEmphasis('todo', 'italic'), 4);
+  setBodyItemText(parent, 2, toggleEmphasis('done', 'bold'), 4);
+  assert.equal(parent.body, '  - **nested**\n    - [ ] *todo*\n    - [x] **done**');
+  assert.equal(toggleEmphasis('', 'bold'), '');
+  assert.equal(toggleEmphasis('   ', 'italic'), '   ');
+});
+
+test('R-21-07: emphasis buttons are active only when every selected label has the style', () => {
+  const makeHarness = () => new Function(`
+    const state = { headings: [], bodyItems: [] };
+    const classes = { bold: false, italic: false };
+    const buttons = {
+      'btn-bold': { classList: { toggle(_name, value) { classes.bold = value; } } },
+      'btn-italic': { classList: { toggle(_name, value) { classes.italic = value; } } },
+    };
+    const document = { getElementById(id) { return buttons[id]; } };
+    function getSelectionEmphasisTexts() { return state; }
+    ${extractWebviewFunction('parseEmphasis')}
+    ${extractWebviewFunction('updateEmphasisButtons')}
+    return { state, classes, update: updateEmphasisButtons };
+  `)() as {
+    state: { headings: Array<{ text: string }>; bodyItems: Array<{ item: { text: string } }> };
+    classes: { bold: boolean; italic: boolean };
+    update(): void;
+  };
+
+  const h = makeHarness();
+  h.update();
+  assert.deepEqual(h.classes, { bold: false, italic: false }, 'no selection is inactive');
+  h.state.headings = [{ text: '***one***' }, { text: '**two**' }];
+  h.update();
+  assert.deepEqual(h.classes, { bold: true, italic: false }, 'all-bold, mixed-italic selection');
+  h.state.headings = [{ text: '***one***' }];
+  h.state.bodyItems = [{ item: { text: '***body***' } }];
+  h.update();
+  assert.deepEqual(h.classes, { bold: true, italic: true }, 'all selected labels have both styles');
+  h.state.headings = [{ text: '**one**' }, { text: 'plain' }];
+  h.state.bodyItems = [];
+  h.update();
+  assert.deepEqual(h.classes, { bold: false, italic: false }, 'mixed selection is inactive');
 });

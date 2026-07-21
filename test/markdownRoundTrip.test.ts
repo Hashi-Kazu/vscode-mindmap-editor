@@ -180,7 +180,7 @@ test('collapse state survives a file rename (relative paths are filename-indepen
   assert.ok(!out.includes('Renamed/'));
 });
 
-test('body-item-collapse (new relative format) round-trips with the heading prefix re-added', () => {
+test('R-15-05: body-item-collapse (new relative format) round-trips with the heading prefix re-added', () => {
   // Stored relative to the root; the parser re-adds the filename prefix so the
   // webview's findNodeByHeadingPath (which expects the prefix) still resolves.
   const input = [
@@ -204,7 +204,7 @@ test('body-item-collapse (new relative format) round-trips with the heading pref
   assert.ok(!out.includes('Doc/A::item'));
 });
 
-test('body-item-collapse (old filename-prefixed format) is honored for backward compat', () => {
+test('R-15-05: body-item-collapse (old filename-prefixed format) is honored for backward compat', () => {
   const input = [
     '---',
     'body-item-collapse:',
@@ -490,7 +490,7 @@ test('H6 node level is preserved through serialize then re-parse', () => {
 });
 
 // R-01-02: H1なしファイルはファイル名がルートになる
-test('file without H1: root.text is filename, first child has level 2', () => {
+test('R-01-02: file without H1: root.text is filename, first child has level 2', () => {
   const input = '## Section\n### Sub\n';
   const parsed = parseMarkdown(input, FILE);
 
@@ -502,7 +502,7 @@ test('file without H1: root.text is filename, first child has level 2', () => {
 });
 
 // R-01-02: H1ありファイルの構造
-test('file with H1: root.text is filename, root child has level 1 with H1 text', () => {
+test('R-01-02: file with H1: root.text is filename, root child has level 1 with H1 text', () => {
   const input = '# Title\n## Sub\n';
   const parsed = parseMarkdown(input, FILE);
 
@@ -591,7 +591,7 @@ test('node with body has non-empty body field, node without body has empty body'
 
 // AT-06-02 / AT-15-04 / R-06-02, R-15-05: title + mindmap-collapse +
 // body-item-collapse の3ブロック共存がラウンドトリップで全て保全される
-test('title + mindmap-collapse + body-item-collapse coexist and survive round-trip', () => {
+test('R-15-05: title + mindmap-collapse + body-item-collapse coexist and survive round-trip', () => {
   const input = [
     '---',
     'title: Combo',
@@ -624,7 +624,7 @@ test('title + mindmap-collapse + body-item-collapse coexist and survive round-tr
 });
 
 // AT-15-04 / R-15-05: 複数の body-item-collapse パスが順序を保って round-trip する
-test('multiple body-item-collapse paths preserve their order through round-trip', () => {
+test('R-15-05: multiple body-item-collapse paths preserve their order through round-trip', () => {
   const input = [
     '---',
     'body-item-collapse:',
@@ -650,7 +650,7 @@ test('multiple body-item-collapse paths preserve their order through round-trip'
 
 // AT-06-02: serializeToMarkdown はブロックを常に mindmap-collapse →
 // body-item-collapse の順で書き出す（順序保全の固定点）
-test('serializer emits mindmap-collapse before body-item-collapse', () => {
+test('R-15-05: serializer emits mindmap-collapse before body-item-collapse', () => {
   const input = '# A\n- item\n## B\n';
   const parsed = parseMarkdown(input, FILE);
   const out = serializeToMarkdown(
@@ -695,7 +695,7 @@ test('unmanaged frontmatter keys are kept and managed blocks are appended after 
 
 // AT-06-02: collapse 状態を解除して保存すると管理ブロックが消え、
 // 未管理キーのみのフロントマターになる
-test('removing all collapse state drops managed blocks but keeps other frontmatter', () => {
+test('R-15-05: removing all collapse state drops managed blocks but keeps other frontmatter', () => {
   const input = [
     '---',
     'title: T',
@@ -766,7 +766,7 @@ test('nested body items (checkbox + dash mix) survive round-trip unchanged', () 
 
 // AT-15-04 / R-15-05: body-item-collapse のみ（mindmap-collapse なし）でも
 // フロントマターが正しく構築されラウンドトリップする
-test('body-item-collapse alone (no mindmap-collapse) round-trips', () => {
+test('R-15-05: body-item-collapse alone (no mindmap-collapse) round-trips', () => {
   const input = [
     '---',
     'body-item-collapse:',

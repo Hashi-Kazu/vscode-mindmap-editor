@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.22.9] - 2026-07-21
+
+### Changed
+- Issue #53: ADR-0001・現行parser・既存自動テストに合わせ、公開文書とUSDMのルートノード仕様を「拡張子なしファイル名が常にlevel 0、H1〜H6はlevel 1〜6」へ統一した。
+- 受け入れテスト仕様をv1.7.0（USDM v2.22.9対応）へ更新し、欠落していた7仕様IDのATと、未検証23件の自動／手動検証経路を追加した。未実施の受け入れテストはPASS扱いにしていない。
+
+### Tests
+- USDM全仕様IDのAT追跡漏れと、USDM／AT対象版／package／lockのversion不整合を検出する文書整合テストを追加した。
+- Redo、本文追加、複数本文削除、強調切替、および折りたたみ状態追随の対象限定テストを追加・追跡可能にした。
+- parser・serializer・Webviewの実行時コードおよび挙動に変更はない。
+
 ## [2.22.8] - 2026-07-17
 
 ### Changed

@@ -37,9 +37,9 @@ Right-click a top-level body item to **promote** it into a heading node, or righ
 トップレベルの本文項目を右クリックして見出しノードへ**昇格**、子見出しを持たない見出しを右クリックして本文項目へ**降格**できます。どちらも `Ctrl+Z` で元に戻せます。
 
 ### ↔️ Left / Right Layout / 左右展開レイアウト
-Drag a top-level (H1-child) node onto the left or right half of the root to lay out branches on both sides. The side assignment is persisted to frontmatter.
+Drag an H1 node (a direct child of the filename root) onto the left or right half of the root to lay out branches on both sides. The side assignment is persisted to frontmatter.
 
-ルート直下ノードをルートの左半分／右半分にドラッグ＆ドロップすることで、枝を左右両側に振り分けて配置できます。左右の割り当てはフロントマターに保存されます。
+ファイル名ルート直下のH1ノードをルートの左半分／右半分にドラッグ＆ドロップすることで、枝を左右両側に振り分けて配置できます。左右の割り当てはフロントマターに保存されます。
 
 ### 🅱️ Inline Emphasis / インライン強調表示
 `**bold**`, `*italic*`, and `***both***` in labels render as styled text. Toggle emphasis on the selected node(s) with the toolbar buttons or `Ctrl+B` / `Ctrl+I`. Only asterisk notation is decorated — underscore notation (`_italic_`, `__bold__`) is left as-is, so text like `__init__` or `file_name` is shown verbatim.
@@ -104,28 +104,33 @@ Collapse/expand state (for both headings and body items) and left/right layout a
 
 ### Headings and Mind Map Structure / 見出しとマインドマップの対応
 
-Headings map directly to the mind map tree. The depth of each heading becomes its position in the hierarchy.
+The filename (without its extension) is always the level-0 root. Markdown headings H1 through H6 appear beneath it at levels 1 through 6.
 
-見出しレベルがそのままマインドマップのツリー階層に対応します。
+拡張子を除いたファイル名が常にlevel-0ルートとなり、MarkdownのH1〜H6はその下のlevel 1〜6に対応します。
 
-| Markdown | Mind Map | Role |
-|----------|----------|------|
-| `#` | Root node | 1 file = 1 root node / 1ファイルに1つのルートノード |
-| `##` | Level 1 node | 第1階層ノード |
-| `###` | Level 2 node | 第2階層ノード |
-| `####` – `######` | Level 3–5 nodes | 第3〜5階層ノード |
+| Source | Mind Map | Role |
+|--------|----------|------|
+| Filename without extension / 拡張子なしファイル名 | Root (Level 0) | 1 file = 1 root node / 1ファイルに1つのルートノード |
+| `#` (H1) | Level 1 node | 第1階層ノード |
+| `##` (H2) | Level 2 node | 第2階層ノード |
+| `###` (H3) | Level 3 node | 第3階層ノード |
+| `####` (H4) | Level 4 node | 第4階層ノード |
+| `#####` (H5) | Level 5 node | 第5階層ノード |
+| `######` (H6) | Level 6 node | 第6階層ノード |
 
 Headings deeper than H6 are not supported.  
 H6 より深い見出しはサポートされません。
 
+For a file named `project-plan.md`, the root is `project-plan` (this virtual root is not written into the Markdown):<br>
+`project-plan.md` の場合、ルートは `project-plan` です（この仮想ルートはMarkdownへ書き込まれません）。
+
 ```markdown
-# Project Title          ← Root node / ルートノード
-## Planning              ← Level 1 / 第1階層
-### Requirements         ← Level 2 / 第2階層
-### Design               ← Level 2 / 第2階層
-## Development           ← Level 1 / 第1階層
-### Backend              ← Level 2 / 第2階層
-#### API                 ← Level 3 / 第3階層
+# Project Title          ← Level 1 / 第1階層
+## Planning              ← Level 2 / 第2階層
+### Requirements         ← Level 3 / 第3階層
+#### Design              ← Level 4 / 第4階層
+##### Backend            ← Level 5 / 第5階層
+###### API               ← Level 6 / 第6階層
 ```
 
 ---

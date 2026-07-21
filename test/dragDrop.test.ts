@@ -115,7 +115,7 @@ test('R-13-10: performBodyDrop resolves after-insert subtree end from the tree',
   assert.ok(afterIdx > lastLineIdx, 'the after-branch insert must use the tree-resolved subtree end');
 });
 
-test('Issue#40: performBodyDrop remaps body-item-collapse state instead of leaving stale line indices', () => {
+test('R-15-05 / Issue#40: performBodyDrop remaps body-item-collapse state instead of leaving stale line indices', () => {
   // Regression for the D&D frontmatter-tracking bug: performBodyDrop mutated
   // parentNode.body / targetNode.body (splice/insert) without touching
   // collapsedBodyLines, so a collapsed item's own state was dropped and a

@@ -295,6 +295,198 @@ test('R-10-04: cloneForUndo copies collapsedBodyLines as a new Set', () => {
   assert.notEqual(cloned.collapsedBodyLines, original.collapsedBodyLines);
 });
 
+interface UndoRedoHarness {
+  setRootId(id: string): void;
+  setSelection(): void;
+  pushUndo(): void;
+  performUndo(): void;
+  performRedo(): void;
+  readonly rootId: string;
+  readonly undoLength: number;
+  readonly redoLength: number;
+  readonly selectionCleared: boolean;
+  readonly renderCount: number;
+  readonly structuralCount: number;
+  readonly collapseCount: number;
+}
+
+function makeUndoRedoHarness(): UndoRedoHarness {
+  const src = [
+    extractFunction('cloneForUndo'),
+    extractFunction('pushUndo'),
+    extractFunction('performUndo'),
+    extractFunction('performRedo'),
+  ].join('\n');
+  return new Function(`
+    let root = { id: 'initial', text: 'root', level: 0, collapsed: false, body: '', children: [] };
+    let undoStack = [], redoStack = [];
+    const MAX_UNDO = 50;
+    let editingId = null, bodyEditing = false;
+    let selectedId = null, selectedIds = new Set();
+    let selectedBodyItemKey = null, selectedBodyItemData = null;
+    let selectedBodyItemKeys = new Set(), selectedBodyItemsData = new Map();
+    let renderCount = 0, structuralCount = 0, collapseCount = 0;
+    function render() { renderCount++; }
+    function postStructuralEdit() { structuralCount++; }
+    function postBodyItemCollapseState() { collapseCount++; }
+    ${src}
+    return {
+      setRootId(id) { root.id = id; },
+      setSelection() {
+        selectedId = 'heading'; selectedIds.add('heading');
+        selectedBodyItemKey = 'body'; selectedBodyItemData = {};
+        selectedBodyItemKeys.add('body'); selectedBodyItemsData.set('body', {});
+      },
+      pushUndo() { pushUndo(); },
+      performUndo() { performUndo(); },
+      performRedo() { performRedo(); },
+      get rootId() { return root.id; },
+      get undoLength() { return undoStack.length; },
+      get redoLength() { return redoStack.length; },
+      get selectionCleared() {
+        return selectedId === null && selectedIds.size === 0
+          && selectedBodyItemKey === null && selectedBodyItemData === null
+          && selectedBodyItemKeys.size === 0 && selectedBodyItemsData.size === 0;
+      },
+      get renderCount() { return renderCount; },
+      get structuralCount() { return structuralCount; },
+      get collapseCount() { return collapseCount; },
+    };
+  `)() as UndoRedoHarness;
+}
+
+test('R-10-06: Undo/Redo stack round-trip and limits', () => {
+  const h = makeUndoRedoHarness();
+  h.pushUndo();
+  h.setRootId('edited');
+  h.setSelection();
+
+  h.performUndo();
+  assert.equal(h.rootId, 'initial');
+  assert.equal(h.redoLength, 1, 'Undo saves the current tree for Redo');
+  assert.equal(h.selectionCleared, true);
+  assert.deepEqual(
+    [h.renderCount, h.structuralCount, h.collapseCount],
+    [1, 1, 1],
+    'Undo renders and sends structural/collapse notifications'
+  );
+
+  h.performRedo();
+  assert.equal(h.rootId, 'edited');
+  assert.equal(h.undoLength, 1, 'Redo saves the current tree for Undo');
+  assert.deepEqual([h.renderCount, h.structuralCount, h.collapseCount], [2, 2, 2]);
+
+  h.performUndo();
+  assert.equal(h.redoLength, 1);
+  h.pushUndo();
+  assert.equal(h.redoLength, 0, 'a new edit clears Redo history');
+
+  const limited = makeUndoRedoHarness();
+  for (let i = 0; i < 51; i++) {
+    limited.setRootId(`state-${i}`);
+    limited.pushUndo();
+  }
+  assert.equal(limited.undoLength, 50, 'Undo history is capped at 50 entries');
+  for (let i = 0; i < 51; i++) limited.performUndo();
+  assert.equal(limited.redoLength, 50, 'Redo history is capped at 50 entries');
+
+  const empty = makeUndoRedoHarness();
+  empty.performUndo();
+  empty.performRedo();
+  assert.deepEqual(
+    [empty.rootId, empty.renderCount, empty.structuralCount, empty.collapseCount],
+    ['initial', 0, 0, 0],
+    'empty stacks are no-ops'
+  );
+});
+
+test('R-12-12: redo shortcuts stay behind editing guard', () => {
+  const block = extractBlockAfter("document.addEventListener('keydown'");
+  const guardIdx = block.indexOf('if (editingId || bodyEditing) return;');
+  const redoIdx = block.indexOf('performRedo()');
+  assert.ok(guardIdx >= 0 && redoIdx > guardIdx, 'Redo must be evaluated after the editing guard');
+
+  const makeHarness = (editing: boolean) => new Function(`
+    let editingId = ${editing ? "'editing'" : 'null'}, bodyEditing = false;
+    let redoCount = 0;
+    function performRedo() { redoCount++; }
+    function handle(e) ${block}
+    return { handle, get redoCount() { return redoCount; } };
+  `)() as { handle(event: Record<string, unknown>): void; readonly redoCount: number };
+  const event = (key: string, modifiers: Record<string, boolean>) => ({
+    key, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
+    preventDefault() {}, ...modifiers,
+  });
+
+  const active = makeHarness(false);
+  active.handle(event('y', { ctrlKey: true }));
+  active.handle(event('Z', { metaKey: true, shiftKey: true }));
+  assert.equal(active.redoCount, 2, 'Ctrl+Y and Cmd+Shift+Z both invoke Redo');
+
+  const editing = makeHarness(true);
+  editing.handle(event('y', { ctrlKey: true }));
+  editing.handle(event('Z', { ctrlKey: true, shiftKey: true }));
+  assert.equal(editing.redoCount, 0, 'Redo is delegated to the input while editing');
+});
+
+test('R-13-18: addBodyItem creates and edits default bullet with undo/redo', () => {
+  const addSrc = extractFunction('addBodyItem');
+  const editSrc = extractFunction('beginBodyItemEdit');
+  const pushIdx = addSrc.indexOf('pushUndo()');
+  const mutationIdx = addSrc.indexOf('lines.splice');
+  assert.ok(pushIdx >= 0 && pushIdx < mutationIdx, 'Undo snapshot must precede the body mutation');
+  assert.ok(editSrc.includes('input.select()'), 'the new body label must be fully selected for editing');
+
+  const h = new Function(`
+    const NEW_BODY_TEXT = '新しい本文';
+    let root = {
+      id: 'root', text: 'root', level: 0, collapsed: false, body: '',
+      children: [{ id: 'parent', text: 'parent', level: 1, collapsed: false, body: '- existing', children: [] }]
+    };
+    let undoStack = [], redoStack = [];
+    const MAX_UNDO = 50;
+    let editingId = null, bodyEditing = false, _pendingBodyEdit = null;
+    let selectedId = null, selectedIds = new Set();
+    let selectedBodyItemKey = null, selectedBodyItemData = null;
+    let selectedBodyItemKeys = new Set(), selectedBodyItemsData = new Map();
+    let checkboxFilter = 'all', structuralCount = 0;
+    function getBodyItems() { return []; }
+    function setCheckboxFilter(value) { checkboxFilter = value; }
+    function render() {}
+    function postStructuralEdit() { structuralCount++; }
+    function postBodyItemCollapseState() {}
+    ${extractFunction('cloneForUndo')}
+    ${extractFunction('pushUndo')}
+    ${extractFunction('performUndo')}
+    ${extractFunction('performRedo')}
+    ${addSrc}
+    return {
+      add() { addBodyItem(root.children[0], 0, 2); },
+      undo() { performUndo(); }, redo() { performRedo(); },
+      get body() { return root.children[0].body; },
+      get pending() { return _pendingBodyEdit; },
+      get selectedBodyItemKey() { return selectedBodyItemKey; },
+      get structuralCount() { return structuralCount; },
+    };
+  `)() as {
+    add(): void; undo(): void; redo(): void;
+    readonly body: string;
+    readonly pending: { parentId: string; lineIdx: number } | null;
+    readonly selectedBodyItemKey: string | null;
+    readonly structuralCount: number;
+  };
+
+  h.add();
+  assert.equal(h.body, '- existing\n  - 新しい本文');
+  assert.deepEqual(h.pending, { parentId: 'parent', lineIdx: 1 });
+  assert.equal(h.selectedBodyItemKey, 'parent:1');
+  assert.equal(h.structuralCount, 1, 'the new line is synchronized immediately');
+  h.undo();
+  assert.equal(h.body, '- existing');
+  h.redo();
+  assert.equal(h.body, '- existing\n  - 新しい本文');
+});
+
 test('R-15-03/R-15-04: add-child body item is appended after existing children (Issue #46)', () => {
   const helpers = new Function(`
     const BODY_H = 20;
