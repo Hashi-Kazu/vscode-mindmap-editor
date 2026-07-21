@@ -221,3 +221,37 @@ test('R-13-XX: body-item drop collection keeps root JSON-serializable (no _owner
   assert.doesNotThrow(() => JSON.stringify(root),
     'root must remain acyclic / JSON-serializable after drop collection');
 });
+
+test("R-15-01/S20-04: assignBodyItemPositions places nested body items leftward for direction 'left'", () => {
+  // Regression for the left-branch layout bug: nested (grandchild+) body
+  // items were left at their right-side x from the recursive call and only
+  // the direct child's _x was re-placed leftward afterward, so grandchildren
+  // ended up overlapping an ancestor instead of stepping further left.
+  const fnText = extractFunction('assignBodyItemPositions');
+  const assignBodyItemPositions = new Function(`
+    const BODY_ITEM_GAP = 12, BODY_H = 42, BODY_MIN_W = 80, BODY_V_GAP = 8;
+    function measureNodeW(text, isBody, hasToggle) { return 100; }
+    ${fnText}
+    return assignBodyItemPositions;
+  `)() as (item: Record<string, unknown>, x: number, topY: number, direction: string) => void;
+
+  const grandchild: Record<string, unknown> = {
+    text: 'grandchild', children: [], collapsed: false, _sh: 42, _w: 100,
+  };
+  const child: Record<string, unknown> = {
+    text: 'child', children: [grandchild], collapsed: false, _sh: 42, _w: 100,
+  };
+  const root: Record<string, unknown> = {
+    text: 'root', children: [child], collapsed: false, _sh: 42, _w: 100,
+  };
+
+  assignBodyItemPositions(root, 500, 0, 'left');
+
+  assert.equal(root._x, 500);
+  assert.ok((child._x as number) < (root._x as number),
+    'child must be placed left of root');
+  assert.ok((grandchild._x as number) < (child._x as number),
+    'grandchild must be placed left of child (not left stranded at root level)');
+  assert.notEqual(grandchild._x, root._x,
+    'grandchild must not overlap the root position');
+});
