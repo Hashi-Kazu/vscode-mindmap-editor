@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.23.0] - 2026-07-27
+
+### Changed
+- マインドマップビューアの起動単位をファイル（URI）単位へ変更した。ファイルごとに独立したビューアを同時に開けるようになり、各ビューアが独立した対象ドキュメント・キャッシュツリー・同期状態・書き込みキューを持つ（R-19-08）。
+- 既定（`perFile`）では、アクティブなMarkdownエディタが切り替わっても開いているビューアの対象ドキュメントを差し替えず、当該ファイルのビューアが既にある場合のみそのタブを前面化する（エディタのフォーカスは維持）。ビューアが無いファイルへフォーカスしただけでは新規パネルを自動生成しない（R-19-09）。
+
+### Added
+- 設定 `mindmap.viewerMode`（`perFile` / `shared`、既定 `perFile`）を追加した。`shared` を選ぶと従来どおり1枚のビューアがアクティブエディタに追従する（R-19-11）。
+
+### Deprecated
+- 設定 `mindmap.followActiveEditor` を非推奨にした（設定キーは後方互換のため残す）。`mindmap.viewerMode` が未設定で `followActiveEditor` が明示的に `true` の場合のみ、従来の追従動作（`shared` 相当）になる（R-19-05）。
+
+### Tests
+- `test/viewerPerFile.test.ts` を追加し、`mindmap.viewerMode` の定義、`resolveViewerMode` の判定、`revealExistingFor` の前面化のみの挙動、`extension.ts` のモード分岐、`dispose()` の解放処理を検証した。
+
 ## [2.22.10] - 2026-07-21
 
 ### Changed
