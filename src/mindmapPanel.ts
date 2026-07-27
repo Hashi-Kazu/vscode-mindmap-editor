@@ -70,8 +70,49 @@ export class MindMapPanel {
   }
 
   /**
-   * Follow the active editor: when the user focuses a different Markdown
-   * document, retarget the active mindmap panel to that document instead of
+   * Resolve the viewer launch mode (R-19-11).
+   *  - 'perFile' (default): one independent viewer per file (URI). Focusing a
+   *    different .md never retargets an existing panel.
+   *  - 'shared': legacy single-viewer behaviour — the active panel follows the
+   *    active editor by swapping its target document.
+   * Backward compatibility: when `mindmap.viewerMode` has NOT been set
+   * explicitly by the user (no global/workspace/folder value) and the legacy
+   * `mindmap.followActiveEditor` has been explicitly set to `true`, keep the
+   * old behaviour by reporting 'shared'.
+   */
+  public static resolveViewerMode(): 'perFile' | 'shared' {
+    const cfg = vscode.workspace.getConfiguration('mindmap');
+    const inspected = cfg.inspect<'perFile' | 'shared'>('viewerMode');
+    const explicit =
+      inspected?.globalValue ??
+      inspected?.workspaceValue ??
+      inspected?.workspaceFolderValue;
+    if (explicit === 'perFile' || explicit === 'shared') return explicit;
+
+    const legacy = cfg.inspect<boolean>('followActiveEditor');
+    const legacyExplicit =
+      legacy?.globalValue ?? legacy?.workspaceValue ?? legacy?.workspaceFolderValue;
+    if (legacyExplicit === true) return 'shared';
+
+    return 'perFile';
+  }
+
+  /**
+   * perFile mode (R-19-09): the active editor moved to a Markdown document. If a
+   * panel for that exact URI already exists, bring its tab to the front (keeping
+   * focus in the editor) and make it the active panel. Never retargets an
+   * existing panel to another document and never opens a new panel implicitly.
+   */
+  public static revealExistingFor(uri: vscode.Uri): void {
+    const existing = MindMapPanel.panels.get(uri.toString());
+    if (!existing) return;
+    MindMapPanel.activePanel = existing;
+    existing.panel.reveal(vscode.ViewColumn.Beside, true);
+  }
+
+  /**
+   * shared mode only (R-19-01). Follow the active editor: when the user focuses
+   * a different Markdown document, retarget the active mindmap panel to that document instead of
    * leaving the viewer stuck on the document it was opened with. No-op when:
    *  - there is no open panel,
    *  - the target document is already shown by some panel (just track it),

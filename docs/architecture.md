@@ -52,7 +52,7 @@
 ```
 src/                       # TypeScript ソース（Extension Host 側）
   extension.ts             # コマンド登録・アクティベーション
-  mindmapPanel.ts          # WebviewPanel 管理・双方向同期・自動保存
+  mindmapPanel.ts          # WebviewPanel 管理（URI 単位の複数パネル管理）・双方向同期・自動保存
   markdownParser.ts        # Markdown → MindMapNode（フロントマター解析含む）
   markdownSerializer.ts    # MindMapNode → Markdown（折りたたみパス書き戻し含む）
   conflictDetection.ts     # 楽観的同時実行制御の純粋ロジック（base比較・改行正規化・テスト対象）

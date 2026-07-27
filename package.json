@@ -2,7 +2,7 @@
   "name": "vscode-mindmap-editor",
   "displayName": "Markdown マインドマップエディタ",
   "description": "Markdownの見出し構造をインタラクティブなマインドマップとして表示・編集するVS Code拡張機能",
-  "version": "2.22.10",
+  "version": "2.23.0",
   "publisher": "Hashi-Kazu",
   "repository": {
     "type": "git",
@@ -25,10 +25,24 @@
     "configuration": {
       "title": "Markdown マインドマップエディタ",
       "properties": {
+        "mindmap.viewerMode": {
+          "type": "string",
+          "enum": [
+            "perFile",
+            "shared"
+          ],
+          "default": "perFile",
+          "enumDescriptions": [
+            "ファイルごとに独立したマインドマップビューアを開き、複数ファイルのビューアを同時に表示できる",
+            "1枚のビューアを使い回し、アクティブなMarkdownエディタの切り替えに表示内容を追従させる"
+          ],
+          "description": "マインドマップビューアの起動単位。perFile: ファイル（URI）ごとに独立したビューアを保持する（既定）。shared: 1枚のビューアがアクティブエディタに追従する（従来動作）"
+        },
         "mindmap.followActiveEditor": {
           "type": "boolean",
           "default": true,
-          "description": "アクティブなMarkdownエディタが切り替わったとき、マインドマップビューアの表示内容を自動でその.mdファイルに追従させる"
+          "description": "アクティブなMarkdownエディタが切り替わったとき、マインドマップビューアの表示内容を自動でその.mdファイルに追従させる",
+          "markdownDeprecationMessage": "この設定は非推奨です。`#mindmap.viewerMode#` に統合されました。1枚のビューアを追従させる場合は `mindmap.viewerMode` を `shared` に設定してください。"
         },
         "mindmap.fontSize": {
           "type": "number",

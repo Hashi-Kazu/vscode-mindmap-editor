@@ -30,19 +30,23 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(cmd);
 
-  // Follow the active editor: when focus moves to a different Markdown document,
-  // retarget the open mindmap viewer to show that document. Non-Markdown
-  // editors (output panel, settings, images, etc.) are ignored so the viewer
-  // keeps its current content rather than being cleared. Gated by a setting so
-  // users can opt out of auto-follow.
+  // Active-editor reaction, gated by `mindmap.viewerMode` (R-19-11):
+  //  - 'perFile' (default): each file keeps its own viewer (R-19-08). Focusing a
+  //    .md only brings that file's existing panel to the front (R-19-09); the
+  //    target document of an open panel is never swapped and no panel is opened
+  //    implicitly.
+  //  - 'shared': legacy behaviour — retarget the active viewer to the focused
+  //    document (R-19-01).
+  // Non-Markdown editors (output panel, settings, images, etc.) are ignored so
+  // the viewer keeps its current content rather than being cleared (R-19-02).
   const followListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
     if (!editor) return;
     if (editor.document.languageId !== 'markdown') return;
-    const enabled = vscode.workspace
-      .getConfiguration('mindmap')
-      .get<boolean>('followActiveEditor', true);
-    if (!enabled) return;
-    MindMapPanel.followActiveDocument(editor.document);
+    if (MindMapPanel.resolveViewerMode() === 'shared') {
+      MindMapPanel.followActiveDocument(editor.document);
+    } else {
+      MindMapPanel.revealExistingFor(editor.document.uri);
+    }
   });
   context.subscriptions.push(followListener);
 }
