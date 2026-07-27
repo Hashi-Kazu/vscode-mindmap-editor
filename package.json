@@ -103,7 +103,7 @@
     "package": "npx vsce package",
     "lint": "tsc --noEmit -p tsconfig.json && node --check media/mindmap.js",
     "pretest": "node esbuild.test.js",
-    "test": "node --test \"dist-test/**/*.test.js\""
+    "test": "node --test dist-test/**/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
