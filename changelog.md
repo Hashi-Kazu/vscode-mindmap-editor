@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.23.1] - 2026-07-27
+
+### Changed
+- Marketplace公開失敗のため再公開用にバージョンのみ更新（要件・実装内容の変更なし）。
+
 ## [2.23.0] - 2026-07-27
 
 ### Changed
