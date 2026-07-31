@@ -56,10 +56,15 @@ A progress widget shows the completed / total checkbox count. The toolbar filter
 
 `Ctrl+クリック`で兄弟ノードを複数選択できます。カット・コピー・ペースト・移動・削除・見出し⇄本文変換・チェックボックス切替がまとめて実行できます。
 
-### 🔄 Auto-Follow & Conflict Detection / 自動追従・競合検知
-The viewer automatically follows the active Markdown editor as you switch files. Concurrent edits made in the text editor and the mind map are detected and merged without losing changes (lost-update prevention).
+### 🗂️ Per-File Viewers / ファイルごとのビューア
+By default (`mindmap.viewerMode: perFile`), each Markdown file gets its own independent mind map viewer, so you can open and edit several files' mind maps side by side at the same time. Switching editor focus to a different `.md` file only brings its viewer to the front if it is already open — it does **not** open automatically. If you prefer the old behavior — a single viewer that always follows the active editor — set `mindmap.viewerMode` to `shared`.
 
-ファイルを切り替えると、ビューアがアクティブなMarkdownエディタに自動追従します。テキストエディタとマインドマップの同時編集は検知され、変更を失わずにマージされます（Lost Update 防止）。
+既定（`mindmap.viewerMode: perFile`）では、ファイル（URI）ごとに独立したビューアが開くため、複数ファイルのマインドマップを同時に並べて表示・編集できます。エディタのフォーカスを別の `.md` ファイルに移しても、そのファイルのビューアが**既に開いている場合はタブが前面化されるだけ**で、開いていなければ自動では開きません。従来どおり「1枚のビューアがアクティブエディタに追従」する動作にしたい場合は、`mindmap.viewerMode` を `shared` に設定してください。
+
+### 🔀 Conflict Detection / 競合検知
+When the text editor and the mind map are edited concurrently, changes are **not** auto-merged. Instead, a modal dialog asks you to choose: **"Load latest (discard my edits)"** or **"Overwrite with my changes (discard the other edits)"**. Whichever side is discarded is backed up first — to `<filename>.conflict-mine-<timestamp>.md` or `.conflict-remote-<timestamp>.md` in the same folder — so no edit is ever lost outright.
+
+テキストエディタとマインドマップで同時編集が発生した場合、自動マージは行われません。代わりにモーダルダイアログが表示され、**「最新を読み込む（自分の編集は破棄）」**または**「自分の変更で上書き（他者の変更は破棄）」**のどちらかを選択します。破棄される側は先にバックアップされ、同じフォルダ内に `<ファイル名>.conflict-mine-<日時>.md` または `.conflict-remote-<日時>.md` として保存されるため、編集内容が完全に失われることはありません。
 
 ### ⌨️ Full Keyboard Support / キーボード操作
 
@@ -75,15 +80,31 @@ The viewer automatically follows the active Markdown editor as you switch files.
 | `Ctrl+B` / `Ctrl+I` | Toggle bold / italic | 太字／斜体の切り替え |
 | `Ctrl+Click` | Multi-select sibling nodes | 兄弟ノードを複数選択 |
 | `Ctrl+Z` | Undo (50 steps) | 元に戻す（50ステップ） |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo | やり直し |
 | `Ctrl+C` / `Ctrl+V` | Copy / Paste node (with subtree) | コピー／貼り付け（サブツリーごと） |
 | `Ctrl+X` | Cut node (with subtree) | カット（サブツリーごと） |
 | `Ctrl+S` | Save | 保存 |
 | `F` | Fit view | ビューをフィット |
+| `Ctrl++` / `Ctrl+-` | Zoom in / out | ズームイン／アウト |
 
 ### 🔍 Pan & Zoom / パン＆ズーム
 Drag the background to pan. Mouse wheel to zoom (centered on cursor). Toolbar buttons for zoom in/out and fit view.
 
 背景をドラッグしてパン操作、マウスホイールでズーム（カーソル中心）できます。ツールバーのボタンからもズームイン／アウト・フィットビューが使えます。
+
+### 🧰 Toolbar / ツールバー
+The toolbar provides: zoom in / zoom out / fit view, bold `B` / italic `I` toggles, **expand all** / **collapse all**, a checkbox progress widget, a checkbox filter (All / ✓ On only / ▢ Off only), a save indicator, and a `?` button that opens a popup listing all keyboard shortcuts.
+
+ツールバーには、ズームイン／ズームアウト／フィット、太字 `B`・斜体 `I` の切り替え、**全展開**／**全折畳**、チェックボックス進捗ウィジェット、チェックボックスフィルタ（すべて／✓ ONのみ／▢ OFFのみ）、保存インジケータ、そして `?` ボタン（クリックでショートカット一覧のポップアップを表示）があります。
+
+### 🖱️ Context Menu / 右クリックメニュー
+Right-click a **heading node** for: add child node, add sibling node, add body item, move up / down, demote to body item, delete.
+
+見出しノードを右クリックすると、次の操作ができます: 子ノード追加、兄弟ノード追加、本文項目を追加、上下移動、本文項目へ降格、削除。
+
+Right-click a **body item** for: add child item, add sibling item (same level), move up / down, toggle checkbox ⇄ bullet, promote to heading, delete.
+
+本文項目を右クリックすると、次の操作ができます: 子項目を追加、同階層に項目を追加、上下移動、チェックボックス⇄箇条書きの切替、見出しへ昇格、削除。
 
 ### 💾 State Persistence / 状態の保持
 Collapse/expand state (for both headings and body items) and left/right layout are saved to Markdown frontmatter and restored on next open. The original EOL (CRLF/LF) of the file is preserved.
@@ -95,8 +116,11 @@ Collapse/expand state (for both headings and body items) and left/right layout a
 ## Getting Started / はじめ方
 
 1. Open a Markdown file in VS Code / VS CodeでMarkdownファイルを開く
-2. Click the **mind map icon** in the editor title bar, or press `Ctrl+Shift+M` (Mac: `Cmd+Shift+M`) / エディタタイトルバーの**マインドマップアイコン**をクリック、またはショートカットキーを押す
-3. The mind map opens in a side panel — edit freely / サイドパネルにマインドマップが開くので、自由に編集できます
+2. Open it as a mind map in one of three ways / 次の3通りのいずれかでマインドマップとして開きます:
+   - Click the **mind map icon** in the editor title bar / エディタタイトルバーの**マインドマップアイコン**をクリック
+   - Press `Ctrl+Shift+M` (Mac: `Cmd+Shift+M`) / ショートカットキー `Ctrl+Shift+M`（Mac: `Cmd+Shift+M`）を押す
+   - Right-click a `.md` file in the Explorer and choose **"マインドマップとして開く"** / エクスプローラで `.md` ファイルを右クリックし「マインドマップとして開く」を選択
+3. The mind map opens beside the editor — edit freely. With the default `perFile` viewer mode, you can open several files' mind maps at once this way / マインドマップがエディタの横に開くので、自由に編集できます。既定の `perFile` モードでは、この操作を繰り返すことで複数ファイルのマインドマップを同時に開けます
 
 ---
 
@@ -204,7 +228,8 @@ Works out of the box — all settings are optional.
 
 | Setting | Default | Description | 説明 |
 |---------|---------|-------------|------|
-| `mindmap.followActiveEditor` | `true` | Auto-follow the active Markdown editor when switching files | ファイル切替時にアクティブなMarkdownエディタへ自動追従する |
+| `mindmap.viewerMode` | `perFile` | `perFile`: an independent viewer per file (default). `shared`: a single viewer follows the active editor | `perFile`: ファイルごとに独立したビューア（既定）。`shared`: 1枚のビューアがアクティブエディタに追従 |
+| `mindmap.followActiveEditor` (**Deprecated**) | `true` | Superseded by `mindmap.viewerMode`. Set `mindmap.viewerMode` to `shared` if you want the viewer to follow the active editor | **非推奨**。`mindmap.viewerMode` に統合されました。追従させたい場合は `mindmap.viewerMode` を `shared` に設定してください |
 | `mindmap.fontSize` | `14` | Font size (px) for mind map nodes (8–32) | ノードのフォントサイズ（px、8〜32） |
 | `mindmap.edgeWidth` | `1.5` | Connection line width (px) (0.5–8) | ノード間接続線の太さ（px、0.5〜8） |
 
@@ -222,6 +247,12 @@ Works out of the box — all settings are optional.
 ## Release Notes / リリースノート
 
 See [CHANGELOG](changelog.md) for the full release history. / 全リリース履歴は [CHANGELOG](changelog.md) を参照してください。
+
+### 2.23.x
+- Added per-file independent viewers (view multiple files' mind maps at once) and the `mindmap.viewerMode` setting; deprecated `mindmap.followActiveEditor` / ファイル単位の独立ビューア（複数ファイル同時表示）と `mindmap.viewerMode` 設定を追加、`mindmap.followActiveEditor` を非推奨化
+
+### 2.22.x
+- Improved visibility of checked checkbox body items (accent color); fixed insertion position for new body child items; fixed drag & drop for body items nested under left-side branches; excluded underscore emphasis from decoration / チェックボックス本文項目の視認性向上（アクセント色）、本文子項目の追加位置修正、左枝ネスト本文項目のD&D修正、アンダースコア強調を装飾対象外に
 
 ### 2.21.x
 - Fixed undo for single heading⇄body promote/demote; move body items with `Alt+↑/↓` and the context menu / 見出し⇄本文の単独昇格・降格の Undo を修正、本文項目を `Alt+↑/↓`・右クリックで上下移動
