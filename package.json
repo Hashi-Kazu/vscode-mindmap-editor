@@ -1,8 +1,8 @@
 {
   "name": "vscode-mindmap-editor",
   "displayName": "Markdown マインドマップエディタ",
-  "description": "Markdownの見出し構造をインタラクティブなマインドマップとして表示・編集するVS Code拡張機能",
-  "version": "2.23.1",
+  "description": "Markdownの見出し・リスト構造をインタラクティブなマインドマップとして表示・編集できるVS Code拡張機能。ファイルごとに独立したビューアを同時に開けます",
+  "version": "2.23.2",
   "publisher": "Hashi-Kazu",
   "repository": {
     "type": "git",

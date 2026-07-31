@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.23.2] - 2026-07-31
+
+### Changed
+- 公開ドキュメント（README・拡張機能説明）を現行実装に整合。要件・実装の挙動変更なし。
+
 ## [2.23.1] - 2026-07-27
 
 ### Changed
