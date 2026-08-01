@@ -1424,7 +1424,7 @@
         const pNode = el && lbl && root ? findById(root, pendingParentId) : null;
         const it = pNode ? getBodyItems(pNode.body).find(i => i.lineIdx === pendingLineIdx) : null;
         if (pNode && it) {
-          beginBodyItemEdit(pNode, it, el, lbl);
+          beginBodyItemEdit(pNode, it, el, lbl, true);
         } else {
           // Target item vanished (e.g. re-synced away) — release the guard.
           bodyEditing = false;
@@ -2011,7 +2011,7 @@
     input.setSelectionRange(caret, caret);
   }
 
-  function beginBodyItemEdit(parentNode, item, div, label) {
+  function beginBodyItemEdit(parentNode, item, div, label, selectAll = false) {
     bodyEditing = true;
     const input = document.createElement('input');
     input.type = 'text';
@@ -2019,7 +2019,16 @@
     input.value = item.text;
     label.replaceWith(input);
     input.focus();
-    input.select();
+    if (selectAll) {
+      // New-item auto-edit (R-13-18): select the default placeholder text
+      // so the first keystroke replaces it entirely.
+      input.select();
+    } else {
+      // Existing-item edit (dblclick / F2, R-13-05): place the caret at the
+      // end instead of selecting all text, matching the heading node's
+      // beginEdit behaviour so a stray keystroke can't wipe out the text.
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
 
     const commit = () => {
       bodyEditing = false;
