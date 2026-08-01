@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.1] - 2026-08-01
+
+### Fixed
+- 見出しノードをダブルクリック／F2／ルート以外への `Enter` フォールバックで編集開始した際にテキストが全選択状態になる不具合を修正。編集開始時はキャレットをテキスト末尾に配置するようにした（Issue #61 / R-12-04b）。
+
 ## [2.25.0] - 2026-08-01
 
 ### Changed

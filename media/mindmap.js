@@ -1962,7 +1962,10 @@
     input.value = node.text;
     label.replaceWith(input);
     input.focus();
-    input.select();
+    // Place the caret at the end of the text instead of selecting all text,
+    // so dblclick / F2 / Enter-fallback edits don't start with an
+    // accidental full-selection that a stray keystroke could overwrite.
+    input.setSelectionRange(input.value.length, input.value.length);
     div.classList.add('editing');
 
     const commit = () => {
