@@ -33,10 +33,6 @@
   // (clamped), NOT to its center — so the full node width is grabbable
   // rather than only the central band.
   const DROP_TOLERANCE = 40;
-  // Upper bound on the number of wrapped/broken label lines a body item
-  // label can display (R-22-03). Beyond this, remaining content is clipped
-  // and only surfaced via the hover tooltip.
-  const MAX_LABEL_LINES = 4;
 
   /** Distance from point (px,py) to the nearest point on rect [x,x+w]×[y,y+h]. */
   function distToRect(px, py, x, y, w, h) {
@@ -127,7 +123,7 @@
     _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
     if (isBody) {
       // Body items may contain <br>: height grows with the number of
-      // displayed label lines (wrap + explicit break), up to MAX_LABEL_LINES
+      // displayed label lines (wrap + explicit break), with no upper bound
       // (R-22-03). lines=1/2 reproduce the pre-existing BODY_H_1LINE/BODY_H
       // values exactly (no regression for <br>-free text).
       const lines = measureLabelLines(text, isBody, nodeW, hasToggle);
@@ -146,9 +142,9 @@
 
   /**
    * Count how many visual lines a body-item label needs to display `text`
-   * within `nodeW` (R-22-03). Each <br>-delimited segment contributes 1 line
-   * if it fits the available width, or 2 if it wraps once. The total is
-   * clamped to [1, MAX_LABEL_LINES].
+   * within `nodeW` (R-22-03). Each <br>-delimited segment contributes the
+   * number of lines it actually wraps to at `available` width, with no
+   * upper bound — body item labels are never clamped/clipped.
    */
   function measureLabelLines(text, isBody, nodeW, hasToggle) {
     if (!text) return 1;
@@ -163,9 +159,9 @@
     let lines = 0;
     for (const seg of segments) {
       const tw = _measureCtx.measureText(seg).width;
-      lines += Math.ceil(tw) <= available ? 1 : 2;
+      lines += available > 0 ? Math.max(1, Math.ceil(Math.ceil(tw) / available)) : 1;
     }
-    return Math.max(1, Math.min(MAX_LABEL_LINES, lines));
+    return Math.max(1, lines);
   }
 
   // ─── Inline Markdown rendering (R-21) ──────────────────────────────────────
@@ -1368,7 +1364,6 @@
     label.className = 'body-node-label';
     label.innerHTML = renderInlineMarkdown(item.text);
     label.style.fontSize = (configFontSize - 2) + 'px';
-    label.style.webkitLineClamp = String(measureLabelLines(item.text, true, item._w || BODY_MIN_W, item.children.length > 0));
     div.appendChild(label);
 
     div.addEventListener('click', (e) => {
@@ -1411,11 +1406,6 @@
     div.addEventListener('contextmenu', (e) => {
       e.preventDefault(); e.stopPropagation();
       showBodyItemContextMenu(e, parentNode, item, key);
-    });
-    div.addEventListener('mouseenter', () => {
-      const lbl = div.querySelector('.body-node-label');
-      const overflow = lbl && (lbl.scrollHeight > lbl.clientHeight || lbl.scrollWidth > lbl.clientWidth);
-      div.title = overflow ? splitByBr(item.text).join('\n') : '';
     });
     div.addEventListener('mousedown', (e) => {
       if (e.button === 0 && e.target.type !== 'checkbox' && e.detail < 2) beginBodyItemDrag(e, parentNode, item);
