@@ -785,6 +785,27 @@ test('R-15-05: body-item-collapse alone (no mindmap-collapse) round-trips', () =
   assert.ok(!out.includes('mindmap-collapse:'));
 });
 
+// R-22: 本文リスト項目内の <br> は実改行に変換されず、1行の文字列のまま
+// ラウンドトリップで冪等に保持される（表示のみの機能で、パース/シリアライズ
+// には影響しない）
+test('R-22: body item text containing <br> round-trips idempotently as a single line', () => {
+  const input = [
+    '# A',
+    '- a<br>b',
+    '- [x] c<br/>d<BR />e',
+    '',
+  ].join('\n');
+
+  const once = roundTrip(input);
+  const twice = roundTrip(once);
+  assert.equal(twice, once, 'round-trip is not idempotent');
+  assert.equal(once, input);
+  // No actual newline was introduced inside the <br>-bearing lines.
+  const lines = once.split('\n');
+  assert.ok(lines.includes('- a<br>b'));
+  assert.ok(lines.includes('- [x] c<br/>d<BR />e'));
+});
+
 // AT-01-02: 同名の兄弟見出しがあってもツリー構造は両方保持され、
 // ラウンドトリップで失われない
 test('sibling headings with the same text are both preserved through round-trip', () => {

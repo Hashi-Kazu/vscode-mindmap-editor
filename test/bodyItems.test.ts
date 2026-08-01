@@ -114,6 +114,22 @@ test('getBodyItems on empty body yields no items', () => {
   assert.deepEqual(getBodyItems(undefined as unknown as string), []);
 });
 
+// ─── R-22: <br> is kept as plain in-line text (display-only feature) ───────
+
+test('R-22: getBodyItems parses "- a<br>b" as a single item whose text keeps the raw <br>', () => {
+  const items = getBodyItems('- a<br>b');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, 'a<br>b');
+  assert.equal(items[0].type, 'bullet');
+});
+
+test('R-22: getBodyItems keeps <br> variants and mid-item checkbox text intact', () => {
+  const items = getBodyItems('- [x] a<br/>b<BR />c');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, 'a<br/>b<BR />c');
+  assert.equal(items[0].checked, true);
+});
+
 test('R-13-12: getBodyItems excludes list-like lines inside code fences', () => {
   const body = [
     '- before',
@@ -505,6 +521,12 @@ test('bodyItemTreeToLines offsets the leading indent when depth is 1 or more', (
   ];
   assert.deepEqual(bodyItemTreeToLines(items, 1), ['  - a']);
   assert.deepEqual(bodyItemTreeToLines(items, 2), ['    - a']);
+});
+
+test('R-22: bodyItemTreeToLines regenerates the same single-line text for an item containing <br>', () => {
+  const source = '- a<br>b';
+  const tree = getBodyItemTree(source);
+  assert.deepEqual(bodyItemTreeToLines(tree), [source]);
 });
 
 // ─── findBodyItemSiblings / moveBodyItemLines / remapCollapsedBodyLinesAfterMove ─

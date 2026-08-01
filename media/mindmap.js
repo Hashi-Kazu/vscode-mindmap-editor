@@ -33,6 +33,10 @@
   // (clamped), NOT to its center — so the full node width is grabbable
   // rather than only the central band.
   const DROP_TOLERANCE = 40;
+  // Upper bound on the number of wrapped/broken label lines a body item
+  // label can display (R-22-03). Beyond this, remaining content is clipped
+  // and only surfaced via the hover tooltip.
+  const MAX_LABEL_LINES = 4;
 
   /** Distance from point (px,py) to the nearest point on rect [x,x+w]×[y,y+h]. */
   function distToRect(px, py, x, y, w, h) {
@@ -94,7 +98,14 @@
     }
     const fontSize = isBody ? configFontSize - 2 : configFontSize - 1;
     _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
-    const tw = _measureCtx.measureText(text).width;
+    // Body items may contain <br> (R-22-03): size the node to the widest
+    // rendered segment, not the raw (un-broken) text width. Heading nodes
+    // never split, so this is a no-op for them (splitByBr returns [text]).
+    const segments = isBody ? splitByBr(text) : [text];
+    let tw = 0;
+    for (const seg of segments) {
+      tw = Math.max(tw, _measureCtx.measureText(seg).width);
+    }
     // overhead: padding + body-dot / checkbox (+ toggle btn when collapsible)
     const pad = (isBody ? 44 : 50) + (hasToggle ? TOGGLE_W : 0);
     const min = isBody ? BODY_MIN_W : NODE_MIN_W;
@@ -114,15 +125,47 @@
     }
     const fontSize = isBody ? configFontSize - 2 : configFontSize - 1;
     _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
+    if (isBody) {
+      // Body items may contain <br>: height grows with the number of
+      // displayed label lines (wrap + explicit break), up to MAX_LABEL_LINES
+      // (R-22-03). lines=1/2 reproduce the pre-existing BODY_H_1LINE/BODY_H
+      // values exactly (no regression for <br>-free text).
+      const lines = measureLabelLines(text, isBody, nodeW, hasToggle);
+      return BODY_H_1LINE + (lines - 1) * 12;
+    }
     const tw = _measureCtx.measureText(text).width;
     // available label width = nodeW - padding - toggle
     const pad = (isBody ? 44 : 50) + (hasToggle ? TOGGLE_W : 0);
     const available = nodeW - pad;
     // If text fits in one line within available width, use compact height
     if (Math.ceil(tw) <= available) {
-      return isBody ? BODY_H_1LINE : NODE_H_1LINE;
+      return NODE_H_1LINE;
     }
-    return isBody ? BODY_H : NODE_H;
+    return NODE_H;
+  }
+
+  /**
+   * Count how many visual lines a body-item label needs to display `text`
+   * within `nodeW` (R-22-03). Each <br>-delimited segment contributes 1 line
+   * if it fits the available width, or 2 if it wraps once. The total is
+   * clamped to [1, MAX_LABEL_LINES].
+   */
+  function measureLabelLines(text, isBody, nodeW, hasToggle) {
+    if (!text) return 1;
+    if (!_measureCtx) {
+      _measureCtx = document.createElement('canvas').getContext('2d');
+    }
+    const fontSize = isBody ? configFontSize - 2 : configFontSize - 1;
+    _measureCtx.font = `${fontSize}px ${getComputedStyle(document.body).fontFamily || 'Segoe UI, sans-serif'}`;
+    const pad = (isBody ? 44 : 50) + (hasToggle ? TOGGLE_W : 0);
+    const available = nodeW - pad;
+    const segments = splitByBr(text);
+    let lines = 0;
+    for (const seg of segments) {
+      const tw = _measureCtx.measureText(seg).width;
+      lines += Math.ceil(tw) <= available ? 1 : 2;
+    }
+    return Math.max(1, Math.min(MAX_LABEL_LINES, lines));
   }
 
   // ─── Inline Markdown rendering (R-21) ──────────────────────────────────────
@@ -145,7 +188,25 @@
     html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    // Restore <br> as a real line break in body-item labels (R-22-01/02).
+    // Runs last, against the already-escaped+decorated HTML string, so this
+    // can only ever re-introduce a literal <br> tag (never any other markup)
+    // and never widens what escapeHtml stripped out. Attribute-bearing
+    // <br ...> variants (e.g. <br class="x">) are intentionally NOT matched
+    // and remain visible as escaped literal text.
+    html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
     return html;
+  }
+
+  /**
+   * Split `text` on <br> / <br/> / <br /> (case-insensitive; no space
+   * allowed directly after "<br"). Returns [text] unchanged (as a string)
+   * when no <br> is present, so callers can treat the single-segment case
+   * uniformly (R-22-03).
+   */
+  function splitByBr(text) {
+    const s = String(text || '');
+    return s.split(/<br\s*\/?>/gi);
   }
 
   function parseEmphasis(text) {
@@ -1307,6 +1368,7 @@
     label.className = 'body-node-label';
     label.innerHTML = renderInlineMarkdown(item.text);
     label.style.fontSize = (configFontSize - 2) + 'px';
+    label.style.webkitLineClamp = String(measureLabelLines(item.text, true, item._w || BODY_MIN_W, item.children.length > 0));
     div.appendChild(label);
 
     div.addEventListener('click', (e) => {
@@ -1353,7 +1415,7 @@
     div.addEventListener('mouseenter', () => {
       const lbl = div.querySelector('.body-node-label');
       const overflow = lbl && (lbl.scrollHeight > lbl.clientHeight || lbl.scrollWidth > lbl.clientWidth);
-      div.title = overflow ? item.text : '';
+      div.title = overflow ? splitByBr(item.text).join('\n') : '';
     });
     div.addEventListener('mousedown', (e) => {
       if (e.button === 0 && e.target.type !== 'checkbox' && e.detail < 2) beginBodyItemDrag(e, parentNode, item);
@@ -1942,6 +2004,20 @@
 
   // ─── Body Item Operations ─────────────────────────────────────────────────
 
+  /**
+   * Insert the literal string '<br>' into `input` at the current caret
+   * position, replacing any selected range, and move the caret to just
+   * after the inserted text (R-22-05).
+   */
+  function insertBrAtCursor(input) {
+    const value = input.value || '';
+    const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+    const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : value.length;
+    input.value = value.slice(0, start) + '<br>' + value.slice(end);
+    const caret = start + 4;
+    input.setSelectionRange(caret, caret);
+  }
+
   function beginBodyItemEdit(parentNode, item, div, label) {
     bodyEditing = true;
     const input = document.createElement('input');
@@ -1966,6 +2042,12 @@
 
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        insertBrAtCursor(input);
+        return;
+      }
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
       if (e.key === 'Escape') { input.removeEventListener('blur', commit); cancel(); }
       e.stopPropagation();
