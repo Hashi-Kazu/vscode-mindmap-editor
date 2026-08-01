@@ -1293,7 +1293,7 @@
         const el = document.querySelector(`.node[data-id="${pendingId}"]`);
         const lbl = el && el.querySelector('.label');
         const n = root && findById(root, pendingId);
-        if (el && lbl && n) beginEdit(n, el, lbl);
+        if (el && lbl && n) beginEdit(n, el, lbl, true);
       });
     }
 
@@ -1948,7 +1948,7 @@
 
   // ─── Heading Inline Editing ───────────────────────────────────────────────
 
-  function beginEdit(node, div, label) {
+  function beginEdit(node, div, label, selectAll = false) {
     if (editingId) return;
     // Root node corresponds to the file name and must not be renamed inline.
     // This is the single choke point for dblclick / F2 / Enter-fallback edits.
@@ -1962,10 +1962,18 @@
     input.value = node.text;
     label.replaceWith(input);
     input.focus();
-    // Place the caret at the end of the text instead of selecting all text,
-    // so dblclick / F2 / Enter-fallback edits don't start with an
-    // accidental full-selection that a stray keystroke could overwrite.
-    input.setSelectionRange(input.value.length, input.value.length);
+    if (selectAll) {
+      // New-node auto-edit (R-04-04): select the default placeholder text
+      // so the first keystroke replaces it entirely, matching the body
+      // item's new-item behaviour (R-13-18).
+      input.select();
+    } else {
+      // Existing-node edit (dblclick / F2 / Enter-fallback, R-12-04b): place
+      // the caret at the end of the text instead of selecting all text, so
+      // these edits don't start with an accidental full-selection that a
+      // stray keystroke could overwrite.
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
     div.classList.add('editing');
 
     const commit = () => {

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.3] - 2026-08-02
+
+### Fixed
+- 見出しノードの新規追加直後の自動編集開始時にテキストが全選択されない不具合を修正。`beginEdit` に `selectAll` 引数を追加し、新規追加時のみ全選択、既存編集（dblclick/F2/Enterフォールバック）は従来どおり末尾キャレットのまま維持（Issue #63 / R-04-04 / R-12-04b）。
+
 ## [2.25.2] - 2026-08-02
 
 ### Fixed
