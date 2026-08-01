@@ -71,7 +71,6 @@ function makeMeasureHarness(): MeasureHarness {
   return new Function(`
     let configFontSize = 14;
     let _measureCtx = null;
-    const MAX_LABEL_LINES = 4;
     const BODY_H_1LINE = 30;
     const BODY_H = 42;
     const NODE_H_1LINE = 32;
@@ -326,23 +325,26 @@ test('splitByBr splits on <br> variants and returns [text] when absent', () => {
   assert.deepEqual(splitByBr(undefined as unknown as string), ['']);
 });
 
-test('R-22-03: measureLabelLines returns 1 for short <br>-free text, 2 for one <br>, clamped to 4 for many', () => {
+test('R-22-03: measureLabelLines returns 1 for short <br>-free text, 2 for one <br>, and an unclamped count for many segments', () => {
   const h = makeMeasureHarness();
   assert.equal(h.measureLabelLines('a', true, 200, false), 1);
   assert.equal(h.measureLabelLines('aaaa<br>bbbb', true, 200, false), 2);
   assert.equal(
     h.measureLabelLines('a<br>a<br>a<br>a<br>a', true, 200, false),
-    4,
-    '5 segments must clamp to MAX_LABEL_LINES'
+    5,
+    '5 segments must NOT be clamped: body item labels have no display-line upper bound'
   );
 });
 
-test('R-22-03: measureNodeH reproduces the pre-existing 30/42 body heights for lines=1/2 (no regression)', () => {
+test('R-22-03: measureNodeH reproduces the pre-existing 30/42 body heights for lines=1/2 (no regression), and grows unbounded beyond 2 lines', () => {
   const h = makeMeasureHarness();
   // Short text fits in one line within the available width.
   assert.equal(h.measureNodeH('a', true, 200, false), 30);
-  // Long single-segment (no <br>) text overflows the available width once.
-  assert.equal(h.measureNodeH('a'.repeat(20), true, 50, false), 42);
+  // Long single-segment (no <br>) text overflows the available width once (2 lines).
+  assert.equal(h.measureNodeH('a'.repeat(20), true, 59, false), 42);
+  // A single segment that wraps to 3 lines must grow the node height beyond
+  // BODY_H (42px) with no upper bound: 30 + (3-1)*12 = 54.
+  assert.equal(h.measureNodeH('a'.repeat(30), true, 56, false), 54);
 });
 
 test("R-22-05: insertBrAtCursor inserts '<br>' at the caret, replacing a selection, and moves the caret after it", () => {
