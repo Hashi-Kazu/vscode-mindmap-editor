@@ -51,6 +51,42 @@ const escapeHtml = new Function(`
   return escapeHtml;
 `)() as (text: string) => string;
 
+const splitByBr = new Function(`
+  ${extractWebviewFunction('splitByBr')}
+  return splitByBr;
+`)() as (text: string) => string[];
+
+const insertBrAtCursor = new Function(`
+  ${extractWebviewFunction('insertBrAtCursor')}
+  return insertBrAtCursor;
+`)() as (input: { value: string; selectionStart?: number; selectionEnd?: number; setSelectionRange(a: number, b: number): void }) => void;
+
+interface MeasureHarness {
+  measureLabelLines(text: string, isBody: boolean, nodeW: number, hasToggle: boolean): number;
+  measureNodeH(text: string, isBody: boolean, nodeW: number, hasToggle: boolean): number;
+}
+
+/** Fakes canvas text measurement as 1px-per-character so width comparisons are deterministic. */
+function makeMeasureHarness(): MeasureHarness {
+  return new Function(`
+    let configFontSize = 14;
+    let _measureCtx = null;
+    const MAX_LABEL_LINES = 4;
+    const BODY_H_1LINE = 30;
+    const BODY_H = 42;
+    const NODE_H_1LINE = 32;
+    const NODE_H = 46;
+    const TOGGLE_W = 19;
+    const fakeCtx = { font: '', measureText(s) { return { width: String(s).length }; } };
+    const document = { createElement() { return { getContext() { return fakeCtx; } }; }, body: {} };
+    function getComputedStyle() { return { fontFamily: 'sans-serif' }; }
+    ${extractWebviewFunction('splitByBr')}
+    ${extractWebviewFunction('measureLabelLines')}
+    ${extractWebviewFunction('measureNodeH')}
+    return { measureLabelLines, measureNodeH };
+  `)() as MeasureHarness;
+}
+
 const parseEmphasis = new Function(`
   ${extractWebviewFunction('parseEmphasis')}
   return parseEmphasis;
@@ -251,4 +287,104 @@ test('R-21-07: emphasis buttons are active only when every selected label has th
   h.state.bodyItems = [];
   h.update();
   assert.deepEqual(h.classes, { bold: false, italic: false }, 'mixed selection is inactive');
+});
+
+// ─── R-22: body-item label <br> line break ─────────────────────────────────
+
+test('R-22-01: renderInlineMarkdown converts <br> / <br/> / <br /> (case-insensitive) to a real line break', () => {
+  assert.equal(renderInlineMarkdown('a<br>b'), 'a<br>b');
+  assert.equal(renderInlineMarkdown('a<BR/>b'), 'a<br>b');
+  assert.equal(renderInlineMarkdown('a<br />b'), 'a<br>b');
+  assert.equal(renderInlineMarkdown('a<Br/>b'), 'a<br>b');
+});
+
+test('R-22-01: <br directly followed by a space (no slash) is not recognized', () => {
+  assert.equal(renderInlineMarkdown('a<br >b'), 'a<br>b');
+  // A space right after "<br" (before any slash) is not part of the allowed
+  // grammar and must stay literal/escaped.
+  assert.equal(renderInlineMarkdown('a< br>b'), 'a&lt; br&gt;b');
+});
+
+test('R-22-01/R-22-02: attribute-bearing <br ...> is not converted and stays escaped literal text', () => {
+  const out = renderInlineMarkdown('<br class="x">');
+  assert.ok(!out.includes('<br>'));
+  assert.ok(out.includes('&lt;br class=&quot;x&quot;&gt;'));
+});
+
+test('R-22-02: <br> conversion runs after emphasis decoration and cannot inject other tags', () => {
+  assert.equal(renderInlineMarkdown('**a<br>b**'), '<strong>a<br>b</strong>');
+  const out = renderInlineMarkdown('<script>alert(1)</script><br>');
+  assert.ok(!out.includes('<script>'));
+  assert.ok(out.includes('&lt;script&gt;'));
+  assert.ok(out.endsWith('<br>'));
+});
+
+test('splitByBr splits on <br> variants and returns [text] when absent', () => {
+  assert.deepEqual(splitByBr('a<br>b<BR/>c<br />d'), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(splitByBr('plain'), ['plain']);
+  assert.deepEqual(splitByBr(''), ['']);
+  assert.deepEqual(splitByBr(undefined as unknown as string), ['']);
+});
+
+test('R-22-03: measureLabelLines returns 1 for short <br>-free text, 2 for one <br>, clamped to 4 for many', () => {
+  const h = makeMeasureHarness();
+  assert.equal(h.measureLabelLines('a', true, 200, false), 1);
+  assert.equal(h.measureLabelLines('aaaa<br>bbbb', true, 200, false), 2);
+  assert.equal(
+    h.measureLabelLines('a<br>a<br>a<br>a<br>a', true, 200, false),
+    4,
+    '5 segments must clamp to MAX_LABEL_LINES'
+  );
+});
+
+test('R-22-03: measureNodeH reproduces the pre-existing 30/42 body heights for lines=1/2 (no regression)', () => {
+  const h = makeMeasureHarness();
+  // Short text fits in one line within the available width.
+  assert.equal(h.measureNodeH('a', true, 200, false), 30);
+  // Long single-segment (no <br>) text overflows the available width once.
+  assert.equal(h.measureNodeH('a'.repeat(20), true, 50, false), 42);
+});
+
+test("R-22-05: insertBrAtCursor inserts '<br>' at the caret, replacing a selection, and moves the caret after it", () => {
+  const makeInput = (value: string, start: number, end = start) => {
+    const input = {
+      value,
+      selectionStart: start,
+      selectionEnd: end,
+      setSelectionRange(a: number, b: number) { input.selectionStart = a; input.selectionEnd = b; },
+    };
+    return input;
+  };
+
+  const midInsert = makeInput('ab', 1);
+  insertBrAtCursor(midInsert);
+  assert.equal(midInsert.value, 'a<br>b');
+  assert.equal(midInsert.selectionStart, 5);
+  assert.equal(midInsert.selectionEnd, 5);
+
+  const selReplace = makeInput('abcdef', 2, 4);
+  insertBrAtCursor(selReplace);
+  assert.equal(selReplace.value, 'ab<br>ef');
+  assert.equal(selReplace.selectionStart, 6);
+  assert.equal(selReplace.selectionEnd, 6);
+
+  const endInsert = makeInput('abc', 3);
+  insertBrAtCursor(endInsert);
+  assert.equal(endInsert.value, 'abc<br>');
+  assert.equal(endInsert.selectionStart, 7);
+
+  const noSelectionInfo = { value: 'xyz', setSelectionRange(a: number, b: number) { (noSelectionInfo as any).selectionStart = a; (noSelectionInfo as any).selectionEnd = b; } } as any;
+  insertBrAtCursor(noSelectionInfo);
+  assert.equal(noSelectionInfo.value, 'xyz<br>');
+});
+
+test('R-22-05: beginBodyItemEdit handles Shift+Enter (insert <br>) before the plain-Enter commit branch', () => {
+  const body = extractWebviewFunction('beginBodyItemEdit');
+  const shiftEnterIdx = body.indexOf("e.shiftKey");
+  const insertBrIdx = body.indexOf('insertBrAtCursor(input)');
+  const blurIdx = body.indexOf('input.blur()');
+  assert.ok(shiftEnterIdx >= 0 && insertBrIdx > shiftEnterIdx,
+    'the Shift+Enter branch must call insertBrAtCursor');
+  assert.ok(insertBrIdx < blurIdx,
+    'the Shift+Enter branch must be checked before the plain-Enter commit (input.blur())');
 });
