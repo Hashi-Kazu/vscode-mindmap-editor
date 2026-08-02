@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.2] - 2026-08-02
+
+### Fixed
+- 本文リスト項目のノード高さ計算がCSSの実際の行高（`line-height: 1.4`）とズレていたため、行数の多いテキストでラベルがノード枠の下端をはみ出して見切れる不具合を修正（Issue #65）。`measureNodeH` の2行目以降の加算量を固定12pxから `.body-node-label` の実際の行高（`Math.round(fontSize * 1.4)`）に一致させた。
+
 ## [2.25.1] - 2026-08-01
 
 ### Fixed
