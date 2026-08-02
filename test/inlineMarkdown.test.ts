@@ -395,3 +395,71 @@ test('R-22-05: beginBodyItemEdit handles Shift+Enter (insert <br>) before the pl
   assert.ok(insertBrIdx < blurIdx,
     'the Shift+Enter branch must be checked before the plain-Enter commit (input.blur())');
 });
+
+test('R-22-05 / Issue #67: insertBrAtCursor uses the native execCommand pipeline when the input is focused in its owner document', () => {
+  const calls: Array<{ command: string; value: string }> = [];
+  const input: any = {
+    value: 'ab',
+    selectionStart: 1,
+    selectionEnd: 1,
+    setSelectionRange(a: number, b: number) { input.selectionStart = a; input.selectionEnd = b; },
+  };
+  input.ownerDocument = {
+    activeElement: input,
+    execCommand(command: string, _showUi: boolean, value: string) {
+      calls.push({ command, value });
+      // Emulate the browser performing the native insertion.
+      const s = input.selectionStart;
+      const e = input.selectionEnd;
+      input.value = input.value.slice(0, s) + value + input.value.slice(e);
+      const caret = s + value.length;
+      input.setSelectionRange(caret, caret);
+      return true;
+    },
+  };
+
+  insertBrAtCursor(input);
+
+  assert.deepEqual(calls, [{ command: 'insertText', value: '<br>' }],
+    'execCommand must be invoked to go through the native editing pipeline (Issue #67)');
+  assert.equal(input.value, 'a<br>b');
+  assert.equal(input.selectionStart, 5);
+  assert.equal(input.selectionEnd, 5);
+});
+
+test('R-22-05 / Issue #67: insertBrAtCursor falls back to manual value/selection update and dispatches an "input" event when execCommand is unavailable or fails', () => {
+  const dispatched: Event[] = [];
+  const input: any = {
+    value: 'ab',
+    selectionStart: 1,
+    selectionEnd: 1,
+    setSelectionRange(a: number, b: number) { input.selectionStart = a; input.selectionEnd = b; },
+    dispatchEvent(ev: Event) { dispatched.push(ev); return true; },
+  };
+  // No ownerDocument at all: must fall back without throwing.
+  insertBrAtCursor(input);
+  assert.equal(input.value, 'a<br>b');
+  assert.equal(input.selectionStart, 5);
+  assert.equal(dispatched.length, 1, 'a synthetic input event must be dispatched to reinforce the redraw');
+  assert.equal(dispatched[0].type, 'input');
+  assert.equal(dispatched[0].bubbles, true);
+
+  // execCommand present but fails/mismatches: must also fall back and dispatch.
+  const dispatched2: Event[] = [];
+  const input2: any = {
+    value: 'cd',
+    selectionStart: 1,
+    selectionEnd: 1,
+    setSelectionRange(a: number, b: number) { input2.selectionStart = a; input2.selectionEnd = b; },
+    dispatchEvent(ev: Event) { dispatched2.push(ev); return true; },
+  };
+  input2.ownerDocument = {
+    activeElement: input2,
+    execCommand() { return false; },
+  };
+  insertBrAtCursor(input2);
+  assert.equal(input2.value, 'c<br>d');
+  assert.equal(input2.selectionStart, 5);
+  assert.equal(dispatched2.length, 1,
+    'a failed execCommand must not prevent the manual fallback and its redraw-reinforcing dispatch');
+});

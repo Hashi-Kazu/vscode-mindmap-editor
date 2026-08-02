@@ -2012,14 +2012,53 @@
    * Insert the literal string '<br>' into `input` at the current caret
    * position, replacing any selected range, and move the caret to just
    * after the inserted text (R-22-05).
+   *
+   * Prefer the browser's native editing pipeline (document.execCommand)
+   * so the caret's visible position, the input's horizontal auto-scroll,
+   * and the native undo stack all stay in sync with the inserted text
+   * (Issue #67 — a plain `input.value` string-slice write does not trigger
+   * this native redraw). `input.ownerDocument` is used rather than the
+   * global `document` so the unit-test sandbox (a plain object mock with
+   * no DOM globals) can opt in/out deterministically. When execCommand is
+   * unavailable, unsupported, or does not produce the expected result,
+   * fall back to the manual value/selection update and reinforce the
+   * redraw by dispatching a synthetic 'input' event when possible.
    */
   function insertBrAtCursor(input) {
     const value = input.value || '';
     const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
     const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : value.length;
-    input.value = value.slice(0, start) + '<br>' + value.slice(end);
+    const expected = value.slice(0, start) + '<br>' + value.slice(end);
+
+    const ownerDoc = input.ownerDocument;
+    if (
+      ownerDoc && typeof ownerDoc === 'object' &&
+      typeof ownerDoc.execCommand === 'function' &&
+      ownerDoc.activeElement === input
+    ) {
+      try {
+        input.setSelectionRange(start, end);
+        const ok = ownerDoc.execCommand('insertText', false, '<br>');
+        if (ok && input.value === expected) {
+          return;
+        }
+      } catch (err) {
+        // fall through to the manual fallback below
+      }
+    }
+
+    input.value = expected;
     const caret = start + 4;
     input.setSelectionRange(caret, caret);
+
+    if (typeof input.dispatchEvent === 'function') {
+      try {
+        const EventCtor = (typeof Event !== 'undefined') ? Event : null;
+        input.dispatchEvent(EventCtor ? new EventCtor('input', { bubbles: true }) : { type: 'input', bubbles: true });
+      } catch (err) {
+        // ignore: dispatch is a best-effort redraw reinforcement
+      }
+    }
   }
 
   function beginBodyItemEdit(parentNode, item, div, label, selectAll = false) {
