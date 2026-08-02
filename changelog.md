@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.5] - 2026-08-03
+
+### Fixed
+- 本文リスト項目の編集中にShift+Enterで `<br>` を挿入した際、入力欄のキャレット表示・スクロール位置がその場で更新されないことがある不具合を修正。可能な場合はブラウザのネイティブ編集パイプライン（`execCommand('insertText', ...)`）経由で挿入し、利用できない／失敗した場合は従来どおり `value` を直接書き換えたうえで `input` イベントを明示的に発火して再描画を補強するようにした。値・キャレット位置・Shiftなし Enter の確定挙動（R-22-05）に変更なし（Issue #67）。
+
 ## [2.25.3] - 2026-08-02
 
 ### Fixed
