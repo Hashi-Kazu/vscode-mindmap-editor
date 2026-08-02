@@ -124,10 +124,13 @@
     if (isBody) {
       // Body items may contain <br>: height grows with the number of
       // displayed label lines (wrap + explicit break), with no upper bound
-      // (R-22-03). lines=1/2 reproduce the pre-existing BODY_H_1LINE/BODY_H
-      // values exactly (no regression for <br>-free text).
+      // (R-22-03). Each additional line beyond the first adds the actual
+      // CSS line height of .body-node-label (line-height: 1.4 × fontSize),
+      // so the computed node height always matches the rendered text and
+      // never gets clipped by .body-node's overflow: hidden (Issue #65).
       const lines = measureLabelLines(text, isBody, nodeW, hasToggle);
-      return BODY_H_1LINE + (lines - 1) * 12;
+      const lineHeight = Math.round(fontSize * 1.4);
+      return BODY_H_1LINE + (lines - 1) * lineHeight;
     }
     const tw = _measureCtx.measureText(text).width;
     // available label width = nodeW - padding - toggle

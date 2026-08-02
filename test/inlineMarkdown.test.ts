@@ -338,13 +338,18 @@ test('R-22-03: measureLabelLines returns 1 for short <br>-free text, 2 for one <
 
 test('R-22-03: measureNodeH reproduces the pre-existing 30/42 body heights for lines=1/2 (no regression), and grows unbounded beyond 2 lines', () => {
   const h = makeMeasureHarness();
-  // Short text fits in one line within the available width.
+  // Short text fits in one line within the available width. The 1-line
+  // height (BODY_H_1LINE = 30) is unaffected by the line-height fix.
   assert.equal(h.measureNodeH('a', true, 200, false), 30);
-  // Long single-segment (no <br>) text overflows the available width once (2 lines).
-  assert.equal(h.measureNodeH('a'.repeat(20), true, 59, false), 42);
-  // A single segment that wraps to 3 lines must grow the node height beyond
-  // BODY_H (42px) with no upper bound: 30 + (3-1)*12 = 54.
-  assert.equal(h.measureNodeH('a'.repeat(30), true, 56, false), 54);
+  // Long single-segment (no <br>) text overflows the available width once
+  // (2 lines). The per-line addition now matches the actual CSS line height
+  // of .body-node-label (line-height: 1.4 × fontSize(12) = 16.8 → 17px),
+  // not the old fixed 12px, so this no longer equals the legacy BODY_H
+  // (42px) constant: 30 + (2-1)*17 = 47 (Issue #65).
+  assert.equal(h.measureNodeH('a'.repeat(20), true, 59, false), 47);
+  // A single segment that wraps to 3 lines must grow the node height with
+  // no upper bound: 30 + (3-1)*17 = 64.
+  assert.equal(h.measureNodeH('a'.repeat(30), true, 56, false), 64);
 });
 
 test("R-22-05: insertBrAtCursor inserts '<br>' at the caret, replacing a selection, and moves the caret after it", () => {
