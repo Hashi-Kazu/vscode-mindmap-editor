@@ -1,9 +1,9 @@
 # マインドマップエディタ VS Code拡張機能 要求仕様書（USDM形式）
 
 **文書番号**: MME-REQ-001-USDM  
-**バージョン**: 2.25.5<br>
+**バージョン**: 2.25.6<br>
 **作成日**: 2026-06-04  
-**最終更新**: 2026-08-03 (v2.25.5)<br>
+**最終更新**: 2026-08-03 (v2.25.6)<br>
 **ステータス**: 承認済み  
 **関連文書**: [architecture.md](architecture.md) | [acceptance-tests.md](acceptance-tests.md)
 

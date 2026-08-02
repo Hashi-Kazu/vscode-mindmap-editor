@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.6] - 2026-08-03
+
+### Fixed
+- Marketplace公開ワークフローのテストが、USDM/受け入れテスト仕様書のバージョン表記とpackage.jsonのバージョン不一致で失敗していたのを修正。docs側のバージョン表記をpackage.jsonに整合させた。
+
 ## [2.25.5] - 2026-08-03
 
 ### Fixed
