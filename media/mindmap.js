@@ -1296,7 +1296,7 @@
         const el = document.querySelector(`.node[data-id="${pendingId}"]`);
         const lbl = el && el.querySelector('.label');
         const n = root && findById(root, pendingId);
-        if (el && lbl && n) beginEdit(n, el, lbl);
+        if (el && lbl && n) beginEdit(n, el, lbl, true);
       });
     }
 
@@ -1427,7 +1427,7 @@
         const pNode = el && lbl && root ? findById(root, pendingParentId) : null;
         const it = pNode ? getBodyItems(pNode.body).find(i => i.lineIdx === pendingLineIdx) : null;
         if (pNode && it) {
-          beginBodyItemEdit(pNode, it, el, lbl);
+          beginBodyItemEdit(pNode, it, el, lbl, true);
         } else {
           // Target item vanished (e.g. re-synced away) — release the guard.
           bodyEditing = false;
@@ -1951,7 +1951,7 @@
 
   // ─── Heading Inline Editing ───────────────────────────────────────────────
 
-  function beginEdit(node, div, label) {
+  function beginEdit(node, div, label, selectAll = false) {
     if (editingId) return;
     // Root node corresponds to the file name and must not be renamed inline.
     // This is the single choke point for dblclick / F2 / Enter-fallback edits.
@@ -1965,10 +1965,18 @@
     input.value = node.text;
     label.replaceWith(input);
     input.focus();
-    // Place the caret at the end of the text instead of selecting all text,
-    // so dblclick / F2 / Enter-fallback edits don't start with an
-    // accidental full-selection that a stray keystroke could overwrite.
-    input.setSelectionRange(input.value.length, input.value.length);
+    if (selectAll) {
+      // New-node auto-edit (R-04-04): select the default placeholder text
+      // so the first keystroke replaces it entirely, matching the body
+      // item's new-item behaviour (R-13-18).
+      input.select();
+    } else {
+      // Existing-node edit (dblclick / F2 / Enter-fallback, R-12-04b): place
+      // the caret at the end of the text instead of selecting all text, so
+      // these edits don't start with an accidental full-selection that a
+      // stray keystroke could overwrite.
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
     div.classList.add('editing');
 
     const commit = () => {
@@ -2014,7 +2022,7 @@
     input.setSelectionRange(caret, caret);
   }
 
-  function beginBodyItemEdit(parentNode, item, div, label) {
+  function beginBodyItemEdit(parentNode, item, div, label, selectAll = false) {
     bodyEditing = true;
     const input = document.createElement('input');
     input.type = 'text';
@@ -2022,7 +2030,16 @@
     input.value = item.text;
     label.replaceWith(input);
     input.focus();
-    input.select();
+    if (selectAll) {
+      // New-item auto-edit (R-13-18): select the default placeholder text
+      // so the first keystroke replaces it entirely.
+      input.select();
+    } else {
+      // Existing-item edit (dblclick / F2, R-13-05): place the caret at the
+      // end instead of selecting all text, matching the heading node's
+      // beginEdit behaviour so a stray keystroke can't wipe out the text.
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
 
     const commit = () => {
       bodyEditing = false;
