@@ -503,12 +503,12 @@ test('R-22-06: beginBodyItemEdit syncs the caret scroll after <br> insertion and
     let _caretMeasureCtx = null;
     const fakeCtx = { font: '', measureText(s) { return { width: String(s).length * ${CHAR_W} }; } };
     const document = { createElement() { return { getContext() { return fakeCtx; } }; } };
-    function getComputedStyle() { return { font: '14px sans-serif', paddingRight: '4' }; }
+    function getComputedStyle() { return { font: '14px sans-serif', paddingLeft: '4', paddingRight: '4' }; }
     ${extractWebviewFunction('syncEditInputCaretScroll')}
     return { syncEditInputCaretScroll };
   `)() as { syncEditInputCaretScroll: (input: { value: string; selectionEnd: number; clientWidth: number; scrollLeft: number }) => void };
 
-  const effectiveClientWidth = CLIENT_WIDTH - 4; // paddingRight subtracted (R-22-06)
+  const effectiveClientWidth = CLIENT_WIDTH - 4 - 4; // paddingLeft and paddingRight subtracted (R-22-06)
   const input = { value: '', selectionEnd: 0, clientWidth: CLIENT_WIDTH, scrollLeft: 0 };
 
   // Simulate the Shift+Enter <br> insertion followed by typing one character

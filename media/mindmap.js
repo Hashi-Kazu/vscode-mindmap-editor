@@ -2103,8 +2103,9 @@
       _caretMeasureCtx.font = style.font;
       const caret = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
       const caretOffset = _caretMeasureCtx.measureText(input.value.slice(0, caret)).width;
+      const paddingLeft = parseFloat(style.paddingLeft) || 0;
       const paddingRight = parseFloat(style.paddingRight) || 0;
-      const clientWidth = Math.max(0, input.clientWidth - paddingRight);
+      const clientWidth = Math.max(0, input.clientWidth - paddingLeft - paddingRight);
       input.scrollLeft = computeCaretScrollLeft(caretOffset, clientWidth, input.scrollLeft);
     } catch (err) {
       // no-op: caret-scroll sync is a best-effort UX enhancement
