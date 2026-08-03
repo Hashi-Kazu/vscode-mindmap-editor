@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.7] - 2026-08-03
+
+### Fixed
+- 本文リスト項目のインライン編集で、Shift+Enterによる `<br>` 挿入直後や長文の入力継続で編集用入力欄のキャレットが可視領域外へ出てしまう不具合を修正。純粋関数 `computeCaretScrollLeft` でキャレットを可視領域内に収めるための `scrollLeft` を算出し、`syncEditInputCaretScroll` がキャレット位置までの描画幅を実測して適用するようにした。`<br>` 挿入直後・以降の全入力イベントで同期する（Issue #89 / R-22-06）。
+
 ## [2.25.6] - 2026-08-03
 
 ### Fixed

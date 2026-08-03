@@ -2061,6 +2061,56 @@
     }
   }
 
+  /**
+   * Pure helper (R-22-06): given the caret's pixel offset from the start of
+   * the input's text, the input's visible client width, and the input's
+   * current scrollLeft, return the scrollLeft value that keeps the caret
+   * inside the visible range. Returns `currentScrollLeft` unchanged when the
+   * caret is already visible so callers can assign it idempotently.
+   */
+  function computeCaretScrollLeft(caretOffset, clientWidth, currentScrollLeft) {
+    if (caretOffset < currentScrollLeft) return caretOffset;
+    if (caretOffset > currentScrollLeft + clientWidth) return caretOffset - clientWidth;
+    return currentScrollLeft;
+  }
+
+  // Separate, lazily-created 2D canvas context dedicated to caret-scroll
+  // measurement (R-22-06). Kept distinct from `_measureCtx` (node-width
+  // measurement) so the two concerns don't share mutable `.font` state.
+  let _caretMeasureCtx = null;
+
+  /**
+   * Keep the caret visible inside `input` by adjusting `input.scrollLeft`
+   * (R-22-06 / Issue #89). Measures the pixel width of the text before the
+   * caret with a canvas 2D context using the input's computed font, then
+   * applies `computeCaretScrollLeft`. No-ops (never throws) when the DOM
+   * APIs it depends on are unavailable.
+   */
+  function syncEditInputCaretScroll(input) {
+    if (!input || typeof input.value !== 'string') return;
+    const doc = (typeof document !== 'undefined') ? document : (input.ownerDocument || null);
+    if (!doc || typeof doc.createElement !== 'function') return;
+    if (typeof getComputedStyle !== 'function') return;
+
+    try {
+      if (!_caretMeasureCtx) {
+        const canvas = doc.createElement('canvas');
+        _caretMeasureCtx = canvas.getContext ? canvas.getContext('2d') : null;
+      }
+      if (!_caretMeasureCtx) return;
+
+      const style = getComputedStyle(input);
+      _caretMeasureCtx.font = style.font;
+      const caret = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
+      const caretOffset = _caretMeasureCtx.measureText(input.value.slice(0, caret)).width;
+      const paddingRight = parseFloat(style.paddingRight) || 0;
+      const clientWidth = Math.max(0, input.clientWidth - paddingRight);
+      input.scrollLeft = computeCaretScrollLeft(caretOffset, clientWidth, input.scrollLeft);
+    } catch (err) {
+      // no-op: caret-scroll sync is a best-effort UX enhancement
+    }
+  }
+
   function beginBodyItemEdit(parentNode, item, div, label, selectAll = false) {
     bodyEditing = true;
     const input = document.createElement('input');
@@ -2093,11 +2143,13 @@
     const cancel = () => { bodyEditing = false; render(); applyPendingUpdate(); };
 
     input.addEventListener('blur', commit);
+    input.addEventListener('input', () => syncEditInputCaretScroll(input));
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
         insertBrAtCursor(input);
+        syncEditInputCaretScroll(input);
         return;
       }
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }

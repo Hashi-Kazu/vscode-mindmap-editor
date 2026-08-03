@@ -61,6 +61,11 @@ const insertBrAtCursor = new Function(`
   return insertBrAtCursor;
 `)() as (input: { value: string; selectionStart?: number; selectionEnd?: number; setSelectionRange(a: number, b: number): void }) => void;
 
+const computeCaretScrollLeft = new Function(`
+  ${extractWebviewFunction('computeCaretScrollLeft')}
+  return computeCaretScrollLeft;
+`)() as (caretOffset: number, clientWidth: number, currentScrollLeft: number) => number;
+
 interface MeasureHarness {
   measureLabelLines(text: string, isBody: boolean, nodeW: number, hasToggle: boolean): number;
   measureNodeH(text: string, isBody: boolean, nodeW: number, hasToggle: boolean): number;
@@ -462,4 +467,64 @@ test('R-22-05 / Issue #67: insertBrAtCursor falls back to manual value/selection
   assert.equal(input2.selectionStart, 5);
   assert.equal(dispatched2.length, 1,
     'a failed execCommand must not prevent the manual fallback and its redraw-reinforcing dispatch');
+});
+
+// ─── R-22-06: caret-scroll follow for the body-item edit input ─────────────
+
+test("R-22-06: computeCaretScrollLeft keeps the caret inside the edit input's visible range", () => {
+  assert.equal(computeCaretScrollLeft(50, 100, 0), 0);
+  assert.equal(computeCaretScrollLeft(50, 100, 20), 20);
+  assert.equal(computeCaretScrollLeft(140, 100, 0), 40);
+  assert.equal(computeCaretScrollLeft(10, 100, 50), 10);
+  assert.equal(computeCaretScrollLeft(0, 100, 300), 0);
+});
+
+test('R-22-06: beginBodyItemEdit syncs the caret scroll after <br> insertion and on every input event', () => {
+  const body = extractWebviewFunction('beginBodyItemEdit');
+  assert.ok(body.includes("addEventListener('input', () => syncEditInputCaretScroll(input))"),
+    'an "input" listener must call syncEditInputCaretScroll on every keystroke');
+  const shiftEnterIdx = body.indexOf('e.shiftKey');
+  const insertBrIdx = body.indexOf('insertBrAtCursor(input)');
+  const syncAfterBrIdx = body.indexOf('syncEditInputCaretScroll(input)', insertBrIdx);
+  const blurIdx = body.indexOf('input.blur()');
+  assert.ok(shiftEnterIdx >= 0 && insertBrIdx > shiftEnterIdx,
+    'the Shift+Enter branch must still call insertBrAtCursor (R-22-05, unchanged)');
+  assert.ok(syncAfterBrIdx > insertBrIdx,
+    'syncEditInputCaretScroll must run immediately after insertBrAtCursor in the Shift+Enter branch');
+  assert.ok(insertBrIdx < blurIdx,
+    'the Shift+Enter branch must still be checked before the plain-Enter commit (input.blur())');
+
+  // Fakes canvas text measurement as a fixed width-per-character so the
+  // caret-follow simulation below is deterministic (mirrors makeMeasureHarness).
+  const CHAR_W = 8;
+  const CLIENT_WIDTH = 100;
+  const harness = new Function(`
+    ${extractWebviewFunction('computeCaretScrollLeft')}
+    let _caretMeasureCtx = null;
+    const fakeCtx = { font: '', measureText(s) { return { width: String(s).length * ${CHAR_W} }; } };
+    const document = { createElement() { return { getContext() { return fakeCtx; } }; } };
+    function getComputedStyle() { return { font: '14px sans-serif', paddingRight: '4' }; }
+    ${extractWebviewFunction('syncEditInputCaretScroll')}
+    return { syncEditInputCaretScroll };
+  `)() as { syncEditInputCaretScroll: (input: { value: string; selectionEnd: number; clientWidth: number; scrollLeft: number }) => void };
+
+  const effectiveClientWidth = CLIENT_WIDTH - 4; // paddingRight subtracted (R-22-06)
+  const input = { value: '', selectionEnd: 0, clientWidth: CLIENT_WIDTH, scrollLeft: 0 };
+
+  // Simulate the Shift+Enter <br> insertion followed by typing one character
+  // at a time; after every step the caret's pixel offset must stay inside
+  // [scrollLeft, scrollLeft + clientWidth].
+  const steps = ['a<br>', ...'the caret must always stay visible while typing'.split('')];
+  let text = '';
+  for (const chunk of steps) {
+    text += chunk;
+    input.value = text;
+    input.selectionEnd = text.length;
+    harness.syncEditInputCaretScroll(input);
+    const caretOffset = text.length * CHAR_W;
+    assert.ok(input.scrollLeft <= caretOffset,
+      `scrollLeft (${input.scrollLeft}) must not exceed the caret offset (${caretOffset})`);
+    assert.ok(caretOffset <= input.scrollLeft + effectiveClientWidth,
+      `caret offset (${caretOffset}) must stay within the visible range starting at scrollLeft (${input.scrollLeft})`);
+  }
 });
