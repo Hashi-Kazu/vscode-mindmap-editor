@@ -1,9 +1,9 @@
 # マインドマップエディタ VS Code拡張機能 要求仕様書（USDM形式）
 
 **文書番号**: MME-REQ-001-USDM  
-**バージョン**: 2.25.7<br>
+**バージョン**: 2.25.8<br>
 **作成日**: 2026-06-04  
-**最終更新**: 2026-08-03 (v2.25.7)<br>
+**最終更新**: 2026-08-03 (v2.25.8)<br>
 **ステータス**: 承認済み  
 **関連文書**: [architecture.md](architecture.md) | [acceptance-tests.md](acceptance-tests.md)
 
@@ -529,6 +529,7 @@
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
+| 2.25.8 | 2026-08-03 | Issue #71。R-22-06のキャレット追従スクロール量計算（`syncEditInputCaretScroll`、`media/mindmap.js`）で可視幅の算出に `paddingLeft` の考慮漏れがあり、Shift+Enterによる `<br>` 挿入後にキャレットが編集用入力欄の可視領域右端でわずかに見切れる不具合を修正。`clientWidth` から `paddingLeft` と `paddingRight` の両方を差し引くようにした。純粋関数 `computeCaretScrollLeft` の判定ロジックは変更なし（R-22-06 改訂なし、挙動修正のみ）|
 | 2.25.7 | 2026-08-03 | Issue #89。本文リスト項目のインライン編集で、Shift+Enterによる `<br>` 挿入直後や長文の入力継続でキャレットが編集用入力欄の可視領域外へ出てしまう不具合を修正。純粋関数 `computeCaretScrollLeft`（`media/mindmap.js`）でキャレットの可視領域維持に必要な `scrollLeft` を算出し、`syncEditInputCaretScroll` がcanvas 2Dの `measureText` でキャレット位置までの描画幅を実測して適用する。`beginBodyItemEdit` のShift+Enter分岐直後および `input` イベント発火のたびに同期する。見出しノードの `beginEdit` は対象外（挙動変更なし、R-22-06 新設） |
 | 2.25.4 | 2026-08-02 | Issue #65。本文リスト項目のラベルが5行前後からノード枠下端をはみ出して見切れる不具合を修正。`measureNodeH`（`media/mindmap.js`）で2行目以降の高さ加算を固定12pxから`.body-node-label`の実際のCSS行高（`line-height: 1.4`×フォントサイズ、`Math.round(fontSize * 1.4)`）に一致させ、算出高さと実描画行のズレを解消した（R-01-09 改訂）|
 | 2.25.3 | 2026-08-02 | Issue #63。見出しノードの新規追加直後の自動編集開始時にテキストが全選択されない不具合を修正。編集の単一合流点 `beginEdit`（`media/mindmap.js`）に選択挙動を切り替える引数（`selectAll`、既定 `false`）を追加し、`_pendingEditId` 経由の新規追加直後の自動編集のみ `input.select()` で全選択とした。既存編集（dblclick / F2 / ルート以外への `Enter` フォールバック）はキャレットを末尾に置く従来挙動を維持（R-04-04 / R-12-04b 改訂） |

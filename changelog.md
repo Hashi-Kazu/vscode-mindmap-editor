@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.8] - 2026-08-03
+
+### Fixed
+- 本文リスト項目のインライン編集で `syncEditInputCaretScroll`（R-22-06）のキャレット追従スクロール量計算に `paddingLeft` の考慮漏れがあり、Shift+Enterによる `<br>` 挿入後にキャレットが可視領域の右端でわずかに見切れる不具合を修正。可視幅の算出時に `clientWidth` から `paddingLeft` と `paddingRight` の両方を差し引くようにした（Issue #71）。
+
 ## [2.25.7] - 2026-08-03
 
 ### Fixed
